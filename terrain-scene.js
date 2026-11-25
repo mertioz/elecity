@@ -3,7 +3,8 @@
 
   const terrain = globalThis.GridLabTerrain;
 
-  function create({ canvas, labels, select, context, holdStart, holdCancel, inspectIssue, quote, plots = [], waterway = false }) {
+  function create({ canvas, labels, select, context, holdStart, holdCancel, inspectIssue, quote, plots = [], waterway = false,
+    translate = (message, values) => values ? message.replace("{name}", values.name) : message }) {
     const T = globalThis.GridLabThree;
     if (!T) return null;
     const gl = canvas.getContext("webgl2", { alpha: true, antialias: true });
@@ -483,8 +484,8 @@
       button.type = "button";
       button.className = "issue-marker";
       button.textContent = "!";
-      button.setAttribute("aria-label", "Alerte : " + name);
-      button.title = "Afficher l’alerte";
+      button.setAttribute("aria-label", translate("Alerte · {name}", { name }));
+      button.title = translate("Afficher l’alerte");
       button.dataset.issue = target.id ?? target.code;
       button.hidden = true;
       button.addEventListener("click", () => inspectIssue(target));
@@ -626,8 +627,8 @@
         pin.type = "button";
         pin.className = "world-pin plot-pin";
         pin.textContent = "+";
-        pin.title = plot.name;
-        pin.setAttribute("aria-label","Emplacement · "+plot.name);
+        pin.title = translate(plot.name);
+        pin.setAttribute("aria-label", translate("Emplacement · {name}", { name: pin.title }));
         pin.dataset.lot = plot.id;
         pin.addEventListener("click", () => select({ kind: "lot", id: plot.id }));
         labels.append(pin);

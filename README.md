@@ -4,6 +4,8 @@ Elecity est un jeu de gestion électrique en 3D. Le village et le plateau des Ha
 
 ## Jeu
 
+Ouvre **Paramètres**, puis **Langue de l’interface** pour passer du français à l’anglais. Elecity mémorise ton choix. Les relevés CSV suivent la langue de l’interface.
+
 Lance l’application avec `npm start` ou ouvre **Elecity.exe** après compilation. La campagne démarre à midi avec 10 CR, une maison, un poste et un groupe d’appoint déjà raccordé. Les bâtiments se construisent sur les emplacements indiqués et sont raccordés automatiquement. La caméra reste libre.
 
 1. Ouvre **Préparer le groupe**, puis reproduis les cinq commandes A à D. Chaque commande réussie prépare 2 kWh à puissance nominale, avec un bonus de 3 kWh si la séquence est parfaite. Une séquence est possible par heure.
@@ -35,6 +37,10 @@ npm start
 ```
 
 `npm test` vérifie la simulation. Sous Windows, `npm run build:windows` produit `dist/Elecity.exe`. `npm run build:vendor` reconstruit le bundle Three.js.
+
+## English interface
+
+Open **Settings** and choose **English** under **Interface language**. The game, map, diagnostics, research tools and CSV exports use the selected language. To run from a checkout, use `npm ci` and `npm start`. On Windows, `npm run build:windows` produces `dist/Elecity.exe`.
 
 ## Licence
 

@@ -9,6 +9,7 @@
     game: '<path d="M7 7h10a4 4 0 0 1 4 3l1 5a3 3 0 0 1-5 2l-2-2H9l-2 2a3 3 0 0 1-5-2l1-5A4 4 0 0 1 7 7zm1 2v5m-2-2h4m7-1h.1m1 2h.1"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.3 15.3 5.2 5.2"/>',
     refresh: '<path d="M5 12a7 7 0 1 1 2 5m-2-5V6m0 6h6"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M10 3h4l.6 2.4 2 .9 2.2-1.2 2 3.5-1.8 1.7v2.4l1.8 1.7-2 3.5-2.2-1.1-2 .9L14 21h-4l-.6-2.3-2-.9-2.2 1.1-2-3.5 1.8-1.7v-2.4L3.2 8.6l2-3.5 2.2 1.2 2-.9z"/>',
     minus: '<path d="M5 12h14"/>', plus: '<path d="M12 5v14m-7-7h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     maximize: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
@@ -21,17 +22,41 @@
   const icon = (key) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${drawIcon[key]}</svg>`;
   const escape = (value) => String(value).replace(/[&<>"']/g, (key) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[key]);
-  const format = (value, digits = 2) => Number(value).toLocaleString("fr-FR", { maximumFractionDigits: digits });
-  const u = (value, unit, digits) => format(value, digits) + " " + unit;
+  const storage = (() => { try { return localStorage; } catch { return null; } })();
+  const languageKey = "elecity-language";
+  let language = "fr";
+  try { if (storage?.getItem(languageKey) === "en") language = "en"; } catch {}
+  const t = (message, values) => globalThis.ElecityI18n.translate(language, message, values);
+  const tr = (message, values) => escape(t(message, values));
+  const locale = () => language === "en" ? "en-GB" : "fr-FR";
+  const format = (value, digits = 2) => Number(value).toLocaleString(locale(), { maximumFractionDigits: digits });
+  const u = (value, unit, digits) => format(value, digits) + " " + t(unit);
   const lossLabel = (value, unit) => {
     if (value >= 1) return u(value, "k" + unit, 3);
     if (value >= .001 || value === 0) return u(value * 1000, unit, 3);
     return u(value * 1000000, "m" + unit, 3);
   };
   const credit = (value) => u(value, "CR");
-  const stamp = (tick) => "J" + (Math.floor(tick / 24) + 1) + " · " + String(tick % 24).padStart(2, "0") + ":00";
+  const stamp = (tick) => t("J{day} · {time}", { day: Math.floor(tick / 24) + 1, time: String(tick % 24).padStart(2, "0") + ":00" });
   const slotOf = (id) => game.slots.find((slot) => slot.id === id);
-  const storage = (() => { try { return localStorage; } catch { return null; } })();
+  const cableName = (wire) => wire.id.startsWith("liaison-") && slotOf(wire.to)
+    ? t("Départ {name}", { name: t(slotOf(wire.to).name) }) : t(wire.name);
+  const displayWorld = (world) => ({
+    ...world, name: t(world.name), nodes: world.nodes.map(node => ({ ...node, name: t(node.name) })),
+    cables: world.cables.map(wire => ({ ...wire, name: cableName(wire) }))
+  });
+
+  function localizedError(message) {
+    const credits = /^(Il manque|Le bidon coûte) (\d+) CR\.$/.exec(message);
+    if (credits) return t(credits[1] + " {credits} CR.", { credits: format(Number(credits[2]), 0) });
+    const requirement = "Construction requise · ";
+    if (message.startsWith(requirement)) return t("Construction requise · {name}", { name: t(message.slice(requirement.length)) });
+    const range = " hors plage.";
+    if (message.endsWith(range)) return t("{field} hors plage.", { field: t(message.slice(0, -range.length)) });
+    return t(message);
+  }
+
+  const pageTitle = document.title;
   const desktop = globalThis.gridlabDesktop;
   const editor = $("#editor");
   const content = $("#editor-content");
@@ -65,6 +90,8 @@
   let offset = 0;
   let history = [];
   let readings;
+  let maximized = false;
+  const refreshCalculators = [];
 
   function save() {
     try {
@@ -76,14 +103,14 @@
 
   function notice(text) {
     const box = $("#notice");
-    box.textContent = text;
+    box.textContent = t(text);
     box.hidden = false;
     clearTimeout(flash);
     flash = setTimeout(() => { box.hidden = true; }, 3000);
   }
 
   function meters(rows) {
-    return rows.map(([name, value]) => `<div><dt>${escape(name)}</dt><dd>${escape(value)}</dd></div>`).join("");
+    return rows.map(([name, value]) => `<div><dt>${tr(name)}</dt><dd>${escape(value)}</dd></div>`).join("");
   }
 
   const inhabitants = () => Object.values(state.game.city.homes).reduce((sum, node) => sum + node.people, 0);
@@ -98,18 +125,18 @@
     }
     if (!state.built.includes("mill")) {
       if (state.fuel < latest.sources.fuelPerKwh * 2) {
-        return ["Ravitailler le groupe", "Il reste peu de combustible. Un bidon coûte " + credit(game.fuelPack.price) + ".", "Voir le réservoir", "starter"];
+        return ["Ravitailler le groupe", t("Il reste peu de combustible. Un bidon coûte {price}.", { price: credit(game.fuelPack.price) }), "Voir le réservoir", "starter"];
       }
       const missing = Math.ceil(slotOf("mill").price - state.game.budget);
       const prepared = state.manual?.at === state.game.elapsed;
-      return ["Économiser pour le moulin", "Il manque " + missing + " CR. Les abonnés paient " + u(game.income, "CR") + " par kWh reçu.",
+      return ["Économiser pour le moulin", t("Il manque {missing}. Les abonnés paient {rate} par kWh reçu.", { missing: credit(missing), rate: credit(game.income) }),
         prepared ? "Voir le groupe" : "Préparer le groupe", prepared ? "starter" : "sequence"];
     }
     if (!state.built.includes("apartment-a")) return ["Accueillir des habitants", "Les logements alimentés attirent des habitants et augmentent les recettes.", "Voir Les Tilleuls", "apartment-a"];
     if (state.built.includes("ridge")) {
       if (!state.built.includes("freight")) return ["Desservir le plateau", "Le départ moyenne tension traverse la rivière. La halle propose deux contrats par jour.", "Voir la halle", "freight"];
-      if (state.jobs.trains < game.trainGoal) return ["Contrats ferroviaires", `${state.jobs.trains} / ${game.trainGoal} trains prêts. Assure le chargement de 05 h à 08 h et de 17 h à 20 h.`, "Suivre le quai", "freight"];
-      if (state.game.best >= 24 && inhabitants() >= 30) return ["Vallée approvisionnée", `${state.jobs.trains} trains expédiés, 30 habitants accueillis et une journée complète de service fiable.`, "Consulter le réseau", "network"];
+      if (state.jobs.trains < game.trainGoal) return ["Contrats ferroviaires", t("{count} / {goal} trains prêts. Assure le chargement de 05 h à 08 h et de 17 h à 20 h.", { count: state.jobs.trains, goal: game.trainGoal }), "Suivre le quai", "freight"];
+      if (state.game.best >= 24 && inhabitants() >= 30) return ["Vallée approvisionnée", t("{count} trains expédiés, 30 habitants accueillis et une journée complète de service fiable.", { count: state.jobs.trains }), "Consulter le réseau", "network"];
     }
     if (inhabitants() < 30) return ["Cap sur 30 habitants", "Développe les logements et adapte la production aux heures chargées.", "Voir Les Terrasses", "apartment-b"];
     if (state.game.best < 24) return ["Stabiliser le réseau", "Couvre au moins 95 % de la demande pendant 24 h consécutives.", "Voir la batterie", "battery"];
@@ -128,19 +155,19 @@
     $("#slots").innerHTML = groups.map(([name,ids]) => {
       const rows = ids.map((id)=> {
         const slot=slotOf(id), built=state.built.includes(id), locked=slot.requires && !state.built.includes(slot.requires);
-        return `<button class="slot-link${locked?" locked":""}" type="button" data-installation="${id}"${locked?` title="${escape(game.requirement(slot))}"`:""}><span>${escape(slot.name)}</span><span class="slot-price ${built?"slot-built":""}">${built?"En place":credit(slot.price)}</span></button>`;
+        return `<button class="slot-link${locked?" locked":""}" type="button" data-installation="${id}"${locked?` title="${escape(localizedError(game.requirement(slot)))}"`:""}><span>${tr(slot.name)}</span><span class="slot-price ${built?"slot-built":""}">${built?tr("En place"):credit(slot.price)}</span></button>`;
       }).join("");
-      return `<details data-group="${name}" ${opened.has(name)?"open":""}><summary>${name}</summary>${rows}</details>`;
+      return `<details data-group="${name}" ${opened.has(name)?"open":""}><summary>${tr(name)}</summary>${rows}</details>`;
     }).join("");
   }
 
   function renderPlay(reset = false) {
     latest = game.advance(state);
     readings = undefined;
-    const signature = state.built.join(",");
+    const signature = language + "/" + state.built.join(",");
     if (signature !== visualSignature || reset) {
       visualSignature = signature;
-      scene?.setWorld(latest.world, reset);
+      scene?.setWorld(displayWorld(latest.world), reset);
       renderCatalog();
     }
     scene?.update(latest.row,state.last);
@@ -153,15 +180,16 @@
       ["Recettes cumulées", credit(state.income)],
       ...(state.built.includes("freight") ? [["Trains expédiés",String(state.jobs.trains)]] : [])
     ]);
-    $("#last-hour").textContent = state.last ? "Dernier créneau · +" + credit(state.last.credit) + (state.last.freight ? " · train expédié" : state.last.crop ? " · récolte vendue" : "") : "";
+    const event = state.last?.freight ? t("train expédié") : state.last?.crop ? t("récolte vendue") : "";
+    $("#last-hour").textContent = state.last ? t("Dernier créneau · +{revenue}", { revenue: credit(state.last.credit) }) + (event ? " · " + event : "") : "";
     $("#game-time").textContent = stamp(12 + state.game.elapsed);
     const [title, detail, label, id] = objective();
-    $("#route-title").textContent = title;
-    $("#route-objective").textContent = detail;
-    const action = `${id}/${label}`;
+    $("#route-title").textContent = t(title);
+    $("#route-objective").textContent = t(detail);
+    const action = `${id}/${t(label)}`;
     if (routeAction !== action) {
       routeAction = action;
-      $("#route-action").innerHTML = `<button class="button primary" type="button" data-installation="${id}">${escape(label)}</button>`;
+      $("#route-action").innerHTML = `<button class="button primary" type="button" data-installation="${id}">${tr(label)}</button>`;
     }
   }
 
@@ -185,7 +213,7 @@
       if (editor.open && $("#build-budget")) refreshConstruction(slotOf(equipment));
       if (editor.open && openFault) drawFault(openFault);
       if (editor.open && openLine) drawLine(openLine);
-      if (editor.open && $("#sequence-result")) $("#sequence-result").textContent = "Créneau écoulé.";
+      if (editor.open && $("#sequence-result")) $("#sequence-result").textContent = t("Créneau écoulé.");
       const prepare = editor.open && $('[data-action="sequence"]');
       if (prepare) {
         prepare.disabled = false;
@@ -195,7 +223,7 @@
     }
     const remaining = Math.max(0, nextHour - now);
     const seconds = Math.ceil(remaining / 1000) + " s";
-    $("#next-hour").textContent = "Heure suivante · " + seconds;
+    $("#next-hour").textContent = t("Heure suivante · {seconds}", { seconds });
     $("#hour-progress").value = 1 - remaining / hourMs;
     $("#editor-clock").textContent = stamp(12 + state.game.elapsed) + " · " + seconds;
   }
@@ -204,7 +232,7 @@
     presses = undefined;
     openFault = undefined;
     openLine = undefined;
-    $("#editor-title").textContent = title;
+    $("#editor-title").textContent = t(title);
     $("#editor-error").textContent = "";
     content.innerHTML = html;
     editor.scrollTop = 0;
@@ -216,16 +244,18 @@
     const affordable = state.game.budget + 1e-6 >= slot.price;
     $("#build-budget").textContent = credit(state.game.budget);
     $('[data-action="buy"]').disabled = required || !affordable;
-    $("#build-status").textContent = required ? game.requirement(slot) : affordable ? "" : "La trésorerie n’est pas encore suffisante.";
+    $("#build-status").textContent = required ? localizedError(game.requirement(slot)) : affordable ? "" : t("La trésorerie n’est pas encore suffisante.");
   }
 
   function settingsHtml(id) {
     const setting = state.settings[id];
+    const help = game.adjustable[id] === "vent" ? t("La consigne plafonne la puissance. Dépasser le régime nominal demande un vent plus soutenu.")
+      : id === "pump" ? t("Le débit augmente avec la vitesse. La puissance demandée augmente avec le cube de la vitesse.")
+        : t("Au-dessus de 100 %, chaque kWh produit demande davantage de {resource}.", { resource: t(game.adjustable[id]) });
     return `<div class="source-control">
-      <label for="operating-rate"><span>Performance</span><strong id="rate-value">${setting} %</strong></label>
+      <label for="operating-rate"><span>${tr("Performance")}</span><strong id="rate-value">${setting} %</strong></label>
       <input id="operating-rate" type="range" min="0" max="150" step="5" value="${setting}">
-      <p>${game.adjustable[id] === "vent" ? "La consigne plafonne la puissance. Dépasser le régime nominal demande un vent plus soutenu." : id === "pump" ? "Le débit augmente avec la vitesse. La puissance demandée augmente avec le cube de la vitesse." :
-        `Au-dessus de 100 %, chaque kWh produit demande davantage de ${game.adjustable[id]}.`}</p>
+      <p>${escape(help)}</p>
     </div>`;
   }
 
@@ -238,8 +268,8 @@
     ];
     if (id === "greenhouse") return [["Reçue / demandée",u(reading.received,"kW")+" / "+u(reading.demand,"kW")],
       ["Temps de culture",state.jobs.cropHours+" / "+game.harvestHours+" h"],["Récoltes vendues",String(state.jobs.harvests)], ["Vente par récolte",credit(game.harvestPrice)]];
-    if (id === "freight") return [["Quai",grid.freightLoading(latest.row.hour)?"Chargement en cours":"En attente du train"],
-      ["Créneaux de chargement","05–08 h et 17–20 h"],["Heures assurées dans le créneau",state.jobs.loading+" / 3 h"],
+    if (id === "freight") return [["Quai",t(grid.freightLoading(latest.row.hour)?"Chargement en cours":"En attente du train")],
+      ["Créneaux de chargement",t("05–08 h et 17–20 h")],["Heures assurées dans le créneau",state.jobs.loading+" / 3 h"],
       ["Reçue / demandée",u(reading.received,"kW")+" / "+u(reading.demand,"kW")],["Contrats honorés",String(state.jobs.trains)],
       ["Départs manqués",String(state.jobs.missed)],["Prime au départ",credit(game.trainPrice)]];
     if (id === "pumped") return [["Énergie du bassin supérieur",u(state.game.stocks[id].soc,"kWh")+" / "+u(slotOf(id).capacity,"kWh")],
@@ -294,37 +324,37 @@
     if (!slot) return;
     equipment = id;
     if (!state.built.includes(id)) {
-      openDialog(slot.name, `<p>${slot.note}</p><dl class="meter">${meters([["Construction", credit(slot.price)]])}
-        <div><dt>Trésorerie</dt><dd id="build-budget"></dd></div></dl>
-        <button class="button primary" type="button" data-action="buy">Construire · ${credit(slot.price)}</button><p id="build-status"></p>`);
+      openDialog(slot.name, `<p>${tr(slot.note)}</p><dl class="meter">${meters([["Construction", credit(slot.price)]])}
+        <div><dt>${tr("Trésorerie")}</dt><dd id="build-budget"></dd></div></dl>
+        <button class="button primary" type="button" data-action="buy">${tr("Construire · {price}", { price: credit(slot.price) })}</button><p id="build-status"></p>`);
       refreshConstruction(slot);
       return;
     }
     const configured = Object.hasOwn(game.adjustable, id);
-    openDialog(slot.name, `${slot.note?`<p>${escape(slot.note)}</p>`:""}<dl class="meter" id="equipment-meters">${meters(readingsFor(id))}</dl>
+    openDialog(slot.name, `${slot.note?`<p>${tr(slot.note)}</p>`:""}<dl class="meter" id="equipment-meters">${meters(readingsFor(id))}</dl>
       ${configured ? settingsHtml(id) : ""}
-      ${id === "pumped" ? `<label class="storage-policy">Consigne de la station<select id="storage-mode">${Object.entries(game.storageModes).map(([key,label])=>`<option value="${key}" ${state.storageMode===key?"selected":""}>${label}</option>`).join("")}</select></label>` : ""}
+      ${id === "pumped" ? `<label class="dialog-select">${tr("Consigne de la station")}<select id="storage-mode">${Object.entries(game.storageModes).map(([key,label])=>`<option value="${key}" ${state.storageMode===key?"selected":""}>${tr(label)}</option>`).join("")}</select></label>` : ""}
       ${id === "starter" ? `<div class="dialog-footer">
-        <button type="button" data-action="sequence" class="button primary" ${state.manual?.at === state.game.elapsed ? "disabled" : ""}>Préparer le groupe</button>
-        <button type="button" data-action="refuel" class="button">Acheter un bidon · ${credit(game.fuelPack.price)}</button></div>
-        <p id="starter-status">${state.manual?.at === state.game.elapsed ? "Le groupe est prêt pour cette heure." : ""}</p>` : ""}
-      ${id === "plant" ? `<button type="button" data-action="refuel" class="button">Ravitailler jusqu’à 1 MWh · ${credit(grid.fuelPrice)}/MWh</button>` : ""}`);
+        <button type="button" data-action="sequence" class="button primary" ${state.manual?.at === state.game.elapsed ? "disabled" : ""}>${tr("Préparer le groupe")}</button>
+        <button type="button" data-action="refuel" class="button">${tr("Acheter un bidon · {price}", { price: credit(game.fuelPack.price) })}</button></div>
+        <p id="starter-status">${state.manual?.at === state.game.elapsed ? tr("Le groupe est prêt pour cette heure.") : ""}</p>` : ""}
+      ${id === "plant" ? `<button type="button" data-action="refuel" class="button">${tr("Ravitailler jusqu’à 1 MWh · {price}/MWh", { price: credit(grid.fuelPrice) })}</button>` : ""}`);
   }
 
   function drawFault(target) {
     const meter=target.kind === "node" ? latest.row.nodes[target.id] : latest.row.cables[target.id];
     const messages=(meter?.issues??[]).map((key)=>grid.diagnostics[key]).filter(Boolean);
-    content.innerHTML=messages.length ? messages.map(({title,detail,tip})=>`<article class="diagnostic-note"><h3>${escape(title)}</h3><p>${escape(detail)}</p><p><strong>Indice</strong> ${escape(tip)}</p></article>`).join("") : "<p>Le service est rétabli sur ce créneau.</p>";
+    content.innerHTML=messages.length ? messages.map(({title,detail,tip})=>`<article class="diagnostic-note"><h3>${tr(title)}</h3><p>${tr(detail)}</p><p><strong>${tr("Indice")}</strong> ${tr(tip)}</p></article>`).join("") : `<p>${tr("Le service est rétabli sur ce créneau.")}</p>`;
   }
 
   function drawLine(id) {
     const wire=latest.world.cables.find((link)=>link.id===id);
     const meter=latest.row.cables[id];
-    const names=new Map(latest.world.nodes.map((node)=>[node.id,node.name]));
+    const names=new Map(latest.world.nodes.map((node)=>[node.id,t(node.name)]));
     const flow=meter.direction<0?[wire.to,wire.from]:[wire.from,wire.to];
     const water=wire.medium==="water";
     content.innerHTML=`<dl class="meter">${meters([
-      ["Sens du flux",meter.direction?flow.map((node)=>names.get(node)).join(" → "):"Au repos"],
+      ["Sens du flux",meter.direction?flow.map((node)=>names.get(node)).join(" → "):t("Au repos")],
       ["Longueur",u(meter.length*1000,"m",1)],
       ...(water?[["Débit",u(meter.sent,"m³/h")]]:[["Puissance au départ",u(meter.sent,"kW")],["Puissance à l’arrivée",u(meter.received,"kW")],
         ["Courant",u(meter.current,"A",4)],["Pertes dans le câble",lossLabel(meter.loss,"W")]])
@@ -340,8 +370,8 @@
 
   function renderSequence() {
     const expected = game.sequence(state, challengeHour);
-    content.innerHTML = `<p>Appuie sur les cinq commandes dans l’ordre. Chaque bonne commande prépare 2 kWh au réglage nominal. Une séquence parfaite ajoute 3 kWh.</p>
-      <div class="sequence" aria-label="Séquence à reproduire">${expected.map((key, i) => {
+    content.innerHTML = `<p>${tr("Appuie sur les cinq commandes dans l’ordre. Chaque bonne commande prépare 2 kWh au réglage nominal. Une séquence parfaite ajoute 3 kWh.")}</p>
+      <div class="sequence" aria-label="${tr("Séquence à reproduire")}">${expected.map((key, i) => {
         const status = i === presses.length ? "current" : presses[i] ? (presses[i] === key ? "correct" : "wrong") : "";
         return `<span class="${status}">${key}</span>`;
       }).join("")}</div>
@@ -360,29 +390,34 @@
       ["Commandes correctes", state.manual.hits + " / 5"],
       ["Énergie préparée au réglage actuel", u(supply.starter, "kWh")],
       ["Puissance demandée par le village", u(latest.row.buildingDemand, "kW")]
-    ])}</dl><p id="sequence-result">L’énergie sera livrée au changement d’heure.</p><button type="button" data-action="close" class="button primary">Retour à la carte</button>`);
+    ])}</dl><p id="sequence-result">${tr("L’énergie sera livrée au changement d’heure.")}</p><button type="button" data-action="close" class="button primary">${tr("Retour à la carte")}</button>`);
   }
 
   function renderForm(kind, specs, convert) {
     const section = document.getElementById("lab-" + kind);
     const formId = "form-" + kind;
     section.innerHTML = `<div class="lab-columns"><form id="${formId}" class="grid-fields">${specs.map(([key, label, value, min, max]) =>
-      `<label>${label}<input type="number" name="${key}" value="${value}" step="any" min="${min}" max="${max}" required></label>`
+      `<label><span>${tr(label)}</span><input type="number" name="${key}" value="${value}" step="any" min="${min}" max="${max}" required></label>`
     ).join("")}</form><div><dl class="meter lab-output"></dl><p class="lab-reference"></p></div></div>`;
     const form = $("#" + formId);
     const recalc = () => {
       if (!form.checkValidity()) {
         section.querySelector(".lab-output").innerHTML = "";
-        section.querySelector(".lab-reference").textContent = "Renseigne des valeurs valides pour obtenir un résultat.";
+        section.querySelector(".lab-reference").textContent = t("Renseigne des valeurs valides pour obtenir un résultat.");
         return;
       }
       const values = Object.fromEntries(specs.map(([key]) => [key, form.elements.namedItem(key).valueAsNumber]));
-      const { results, note } = convert(values);
+      const { results, note, reference } = convert(values);
       section.querySelector(".lab-output").innerHTML = meters(results);
-      section.querySelector(".lab-reference").innerHTML = note;
+      section.querySelector(".lab-reference").innerHTML = `${tr(note)} <a href="${escape(reference.url)}" target="_blank" rel="noopener">${tr(reference.label)}</a>.`;
     };
     form.addEventListener("submit", (event) => event.preventDefault());
     form.addEventListener("input", recalc);
+    refreshCalculators.push(() => {
+      const labels = form.querySelectorAll("label span");
+      specs.forEach(([,label], i) => { labels[i].textContent = t(label); });
+      recalc();
+    });
     recalc();
   }
 
@@ -398,7 +433,11 @@
       ["Courant", u(reading.current, "A", 3)], ["Chute de tension", u(reading.drop, "V", 3)],
       ["Chute relative", u(reading.dropPercent, "%", 3)], ["Pertes Joule", lossLabel(reading.loss, "W")],
       ["Énergie active", u(reading.energy, "kWh")], ["Énergie perdue", lossLabel(reading.lostEnergy, "Wh")]
-    ], note: "Triphasé équilibré. P = √3 × U × I × cos φ. Les pertes résistives sont estimées par 3 × R × I². <a href='https://fr.electrical-installation.org/frwiki/Calcul_de_la_chute_de_tension_en_ligne_en_r%C3%A9gime_permanente' target='_blank' rel='noopener'>Guide Schneider Electric</a>." };
+    ], note: "Triphasé équilibré. P = √3 × U × I × cos φ. Les pertes résistives sont estimées par 3 × R × I².", reference: {
+      label: "Guide Schneider Electric",
+      url: language === "en" ? "https://www.electrical-installation.org/enwiki/Calculation_of_voltage_drop_in_steady_load_conditions"
+        : "https://fr.electrical-installation.org/frwiki/Calcul_de_la_chute_de_tension_en_ligne_en_r%C3%A9gime_permanente"
+    } };
   });
   renderForm("hydraulic", [
     ["flow", "Débit turbiné (m³/s)", .55, 0, 5000], ["head", "Chute nette (m)", game.hydraulicHead, 0, 2500],
@@ -409,7 +448,10 @@
     return { results: [
       ["Puissance électrique", u(reading.power, "kW")], ["Énergie électrique", u(reading.energy, "kWh")],
       ["Puissance hydraulique brute", u(gross.power, "kW")], ["Volume turbiné", u(flow * hours * 3600, "m³", 1)]
-    ], note: "P (kW) ≈ 9,81 × Q × H × η. Le volume turbiné est un passage d’eau dans la roue. <a href='https://www1.eere.energy.gov/water/pdfs/doewater-10107-vol.1-pt1.pdf' target='_blank' rel='noopener'>Microhydropower Handbook, U.S. Department of Energy</a>." };
+    ], note: "P (kW) ≈ 9,81 × Q × H × η. Le volume turbiné est un passage d’eau dans la roue.", reference: {
+      label: "Microhydropower Handbook, U.S. Department of Energy",
+      url: "https://www1.eere.energy.gov/water/pdfs/doewater-10107-vol.1-pt1.pdf"
+    } };
   });
 
   const terms = [
@@ -429,14 +471,54 @@
 
   function glossary(query = "") {
     const plain = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const matches = terms.filter(([word, text]) => plain(word + " " + text).includes(plain(query)));
+    const matches = terms.map(([word, text]) => [t(word), t(text)]).filter(([word, text]) => plain(word + " " + text).includes(plain(query)));
     $("#term-results").innerHTML = matches.map(([word, text]) => `<article><h3>${escape(word)}</h3><p>${escape(text)}</p></article>`).join("")
-      || "<p>Aucun terme trouvé.</p>";
+      || `<p>${tr("Aucun terme trouvé.")}</p>`;
   }
 
-  $("#lab-glossary").innerHTML = '<label>Rechercher un terme<input type="search" id="term-query" placeholder="Ex. tension ou rendement"></label><div class="lab-terms" id="term-results"></div>';
+  $("#lab-glossary").innerHTML = '<label><span data-localize>Rechercher un terme</span><input type="search" id="term-query" placeholder="Ex. tension ou rendement" data-localize-attrs="placeholder"></label><div class="lab-terms" id="term-results"></div>';
   $("#term-query").addEventListener("input", (event) => glossary(event.target.value));
   glossary();
+
+  const localText = $$("[data-localize]").map(element => [element, element.textContent]);
+  const localAttributes = $$("[data-localize-attrs]").flatMap(element =>
+    element.dataset.localizeAttrs.split(" ").map(attribute => [element, attribute, element.getAttribute(attribute)]));
+
+  function syncRouteLabel() {
+    $("#route-toggle").setAttribute("aria-label", t($("#route-body").hidden ? "Déplier les installations" : "Replier les installations"));
+  }
+
+  function updateInterfaceText() {
+    document.documentElement.lang = language;
+    document.title = t(pageTitle);
+    for (const [element, message] of localText) element.textContent = t(message);
+    for (const [element, attribute, message] of localAttributes) element.setAttribute(attribute, t(message));
+    $('[data-window="maximize"]').setAttribute("aria-label", t(maximized ? "Restaurer" : "Agrandir"));
+    syncRouteLabel();
+  }
+
+  function openSettings() {
+    openDialog("Paramètres", `<label class="dialog-select"><span id="language-label">${tr("Langue de l’interface")}</span>
+      <select id="interface-language" autofocus>
+        <option lang="fr" value="fr" ${language === "fr" ? "selected" : ""}>Français</option>
+        <option lang="en" value="en" ${language === "en" ? "selected" : ""}>English</option>
+      </select></label>`);
+  }
+
+  function changeLanguage(next) {
+    if (next === language || !["en", "fr"].includes(next)) return;
+    language = next;
+    try { storage?.setItem(languageKey, next); } catch {}
+    updateInterfaceText();
+    $("#editor-title").textContent = t("Paramètres");
+    $("#language-label").textContent = t("Langue de l’interface");
+    $("#notice").hidden = true;
+    renderPlay();
+    if ($("#lab-readings")) renderNetwork();
+    for (const refresh of refreshCalculators) refresh();
+    glossary($("#term-query").value);
+    updateClock();
+  }
 
   function previousMaps() {
     try {
@@ -452,52 +534,53 @@
     return readings;
   }
 
-  const htmlTable = (heads, rows) => `<div class="lab-table"><table><thead><tr>${heads.map((head) => "<th>" + escape(head) + "</th>").join("")}</tr></thead>
+  const htmlTable = (heads, rows) => `<div class="lab-table"><table><thead><tr>${heads.map((head) => "<th>" + tr(head) + "</th>").join("")}</tr></thead>
     <tbody>${rows.map((row) => `<tr>${row.map((value) => "<td>" + escape(value) + "</td>").join("")}</tr>`).join("")}</tbody></table></div>`;
 
   function renderNetwork(keepControls = false) {
     const forecast = series()[offset];
-    const { row, world, sources, last } = forecast;
+    const { row, sources, last } = forecast;
+    const world = sources ? displayWorld(forecast.world) : forecast.world;
     const names = new Map(world.nodes.map((node) => [node.id, node.name]));
     const nodeRows = world.nodes.map((node) => {
       const reading = row.nodes[node.id];
       const stock = node.id === "starter" && sources ? u(forecast.state.fuel, "kWh de combustible")
         : reading.fuel !== undefined ? u(reading.fuel, "MWh éq.") + " · " + u(reading.water, "m³")
-        : reading.soc !== undefined ? u(reading.soc, "kWh") : reading.community ? format(reading.community.people, 0) + " hab."
-          : reading.care ? format(reading.care.patients, 0) + " patients" : reading.water !== undefined ? u(reading.water, "m³") : "—";
+        : reading.soc !== undefined ? u(reading.soc, "kWh") : reading.community ? u(reading.community.people, "hab.", 0)
+          : reading.care ? u(reading.care.patients, "patients", 0) : reading.water !== undefined ? u(reading.water, "m³") : "—";
       return [node.name, format(reading.voltage, 3), format(reading.demand), format(reading.received),
-        format(reading.generated), stock, (reading.issues ?? []).map((key) => grid.diagnostics[key]?.title ?? key).join(" · ") || "—"];
+        format(reading.generated), stock, (reading.issues ?? []).map((key) => t(grid.diagnostics[key]?.title ?? key)).join(" · ") || "—"];
     });
     const wireRows = world.cables.map((link) => {
       const meter = row.cables[link.id];
       const a = meter.direction < 0 ? link.to : link.from;
       const b = meter.direction < 0 ? link.from : link.to;
-      return [link.name, meter.open ? "Ouvert" : meter.direction ? names.get(a) + " → " + names.get(b) : "Au repos",
+      return [link.name, meter.open ? t("Ouvert") : meter.direction ? names.get(a) + " → " + names.get(b) : t("Au repos"),
         link.medium === "water" ? u(meter.sent, "m³/h") : u(meter.sent, "kW"),
         link.medium === "water" ? "—" : format(meter.current, 4),
         link.medium === "water" ? "—" : lossLabel(meter.loss, "W"), format(meter.length, 4)];
     });
-    const selector = history.length ? `<label>Carte analysée<select id="dataset"><option value="campaign">Le Ruisseau</option>${history.map((item) =>
+    const selector = history.length ? `<label>${tr("Carte analysée")}<select id="dataset"><option value="campaign">${tr("Le Ruisseau")}</option>${history.map((item) =>
       `<option value="${escape(item.id)}" ${item.id === dataset ? "selected" : ""}>${escape(item.name)}</option>`).join("")}</select></label>` : "";
     if (!keepControls || !$("#lab-readings")) {
       $("#lab-network").innerHTML = `<div class="lab-columns">${selector}
         <label><span id="lab-hour-label"></span><input type="range" id="lab-hour" min="0" max="23" value="${offset}"></label></div>
-        <div id="lab-readings"></div><p><button type="button" id="analyse-map" class="button">Analyser un JSON de carte</button></p>`;
+        <div id="lab-readings"></div><p><button type="button" id="analyse-map" class="button">${tr("Analyser un JSON de carte")}</button></p>`;
       $("#lab-hour").addEventListener("input", (event) => { offset = Number(event.target.value); renderNetwork(true); });
       $("#dataset")?.addEventListener("change", (event) => { dataset = event.target.value; offset = 0; readings = undefined; renderNetwork(); });
       $("#analyse-map").addEventListener("click", () => $("#research-file").click());
     }
-    $("#lab-hour-label").textContent = "Créneau de prévision · " + stamp(row.tick);
-    $("#lab-readings").innerHTML = `<p>Mesures du créneau sélectionné. Les puissances sont moyennes sur une heure.</p>
+    $("#lab-hour-label").textContent = t("Créneau de prévision · {time}", { time: stamp(row.tick) });
+    $("#lab-readings").innerHTML = `<p>${tr("Mesures du créneau sélectionné. Les puissances sont moyennes sur une heure.")}</p>
       <dl class="meter lab-meters">${meters([
         ["Produite", u(row.generated, "kW")], ["Demandée", u(row.demand, "kW")], ["Reçue", u(row.served, "kW")],
         ["Pertes dans les câbles", lossLabel(row.losses, "W")], ["Électricité envoyée au stockage", u(row.charged, "kWh")],
         ["Énergie mise en réserve", u(row.stored, "kWh")],["Vent",u(row.wind,"m/s",1)],["Eau livrée", u(row.waterDelivered, "m³")],
         ...(sources ? [["Ventes d’électricité",credit(last.sales)],["Récoltes et contrats",credit(last.crop+last.freight)],["Recettes du créneau",credit(last.credit)]] : [])
       ])}</dl>
-      <h2>Installations</h2>${htmlTable(["Installation", "Tension (kV)", "Demande (kW)", "Reçue (kW)", "Injectée (kW)", "Stock / occupation", "Diagnostic"], nodeRows)}
-      <h2>Liaisons</h2>${wireRows.length ? htmlTable(["Liaison", "Sens", "Débit ou puissance", "Courant (A)", "Pertes", "Longueur (km)"], wireRows) : "<p>Aucune liaison active.</p>"}
-      ${sources && state.built.some((id) => Object.hasOwn(game.adjustable, id)) ? `<h2>Réglage des équipements</h2>
+      <h2>${tr("Installations")}</h2>${htmlTable(["Installation", "Tension (kV)", "Demande (kW)", "Reçue (kW)", "Injectée (kW)", "Stock / occupation", "Diagnostic"], nodeRows)}
+      <h2>${tr("Liaisons")}</h2>${wireRows.length ? htmlTable(["Liaison", "Sens", "Débit ou puissance", "Courant (A)", "Pertes", "Longueur (km)"], wireRows) : `<p>${tr("Aucune liaison active.")}</p>`}
+      ${sources && state.built.some((id) => Object.hasOwn(game.adjustable, id)) ? `<h2>${tr("Réglage des équipements")}</h2>
       <dl class="meter">${meters([
         ...(state.built.includes("starter") ? [["Réglage du groupe", u(state.settings.starter, "%", 0)], ["Groupe disponible", u(sources.starter, "kW")],
           ["Combustible par kWh produit", u(sources.fuelPerKwh, "kWh éq.")], ["Combustible utilisé", u(last.fuel, "kWh éq.")]] : []),
@@ -508,7 +591,7 @@
         ...(state.built.includes("pump") ? [["Réglage de la pompe", u(state.settings.pump, "%", 0)], ["Puissance de pompage", u(sources.pump, "kW")],
           ["Débit maximal de pompage", u(sources.pumpFlow, "m³/h")]] : []),
         ...["breeze","windfarm"].filter((id)=>state.built.includes(id)).map((id)=>[slotOf(id).name,u(state.settings[id],"%",0)+" · "+u(row.nodes[id].available,"kW disponibles")]),
-        ...(state.built.includes("pumped")?[["Consigne de la station",game.storageModes[state.storageMode]]]:[])
+        ...(state.built.includes("pumped")?[["Consigne de la station",t(game.storageModes[state.storageMode])]]:[])
       ])}</dl>` : ""}`;
   }
 
@@ -540,43 +623,48 @@
   }
 
   function csv() {
-    const data = [["Créneau", "Type", "Nom", "Tension (kV)", "Demande (kW)", "Reçue (kW)", "Injectée (kW)", "Courant (A)", "Pertes (kW)", "Débit (m³/h)", "Réserve électrique (kWh)", "Eau restante (m³)", "Habitants", "Patients", "Diagnostic", "Combustible restant (kWh éq.)", "Entrée stockage (kWh)", "Mise en réserve (kWh)", "Ventes électriques (CR)", "Récolte (CR)", "Train (CR)", "Vent (m/s)"]];
-    for (const { row, world, state:after, last } of series()) {
-      data.push([stamp(row.tick),"Bilan",world.name,"",row.demand,row.served,row.generated,"",row.losses,row.waterDelivered,"","","","","","",row.charged,row.stored,last?.sales??"",last?.crop??"",last?.freight??"",row.wind]);
+    const headers = ["Créneau", "Type", "Nom", "Tension (kV)", "Demande (kW)", "Reçue (kW)", "Injectée (kW)", "Courant (A)", "Pertes (kW)", "Débit (m³/h)", "Réserve électrique (kWh)", "Eau restante (m³)", "Habitants", "Patients", "Diagnostic", "Combustible restant (kWh éq.)", "Entrée stockage (kWh)", "Mise en réserve (kWh)", "Ventes électriques (CR)", "Récolte (CR)", "Train (CR)", "Vent (m/s)"];
+    const data = [headers.map(label => t(label))];
+    for (const { row, world: rawWorld, state: after, last } of series()) {
+      const world = after ? displayWorld(rawWorld) : rawWorld;
+      data.push([stamp(row.tick),t("Bilan"),world.name,"",row.demand,row.served,row.generated,"",row.losses,row.waterDelivered,"","","","","","",row.charged,row.stored,last?.sales??"",last?.crop??"",last?.freight??"",row.wind]);
       for (const node of world.nodes) {
         const m = row.nodes[node.id];
-        data.push([stamp(row.tick), grid.catalog[node.type].label, node.name, m.voltage, m.demand, m.received, m.generated,
+        data.push([stamp(row.tick), t(grid.catalog[node.type].label), node.name, m.voltage, m.demand, m.received, m.generated,
           "", "", m.waterFlow, m.soc ?? "", m.water ?? "", m.community?.people ?? "", m.care?.patients ?? "", (m.issues ?? []).join(", "),
           node.id==="starter" && after ? after.fuel : m.fuel===undefined?"":m.fuel*1000,m.charge,m.stored]);
       }
       for (const wire of world.cables) {
         const line = row.cables[wire.id];
         data.push(wire.medium === "water"
-          ? [stamp(row.tick), "Canalisation", wire.name, "", "", "", "", "", "", line.sent, "", "", "", "", (line.issues ?? []).join(", ")]
-          : [stamp(row.tick), "Câble", wire.name, line.voltage, "", line.received, line.sent, line.current, line.loss, "", "", "", "", "", (line.issues ?? []).join(", ")]);
+          ? [stamp(row.tick), t("Canalisation"), wire.name, "", "", "", "", "", "", line.sent, "", "", "", "", (line.issues ?? []).join(", ")]
+          : [stamp(row.tick), t("Câble"), wire.name, line.voltage, "", line.received, line.sent, line.current, line.loss, "", "", "", "", "", (line.issues ?? []).join(", ")]);
       }
     }
-    const cell = (value) => typeof value === "number" ? String(Number(value.toFixed(6))).replace(".", ",")
+    const delimiter = language === "en" ? "," : ";";
+    const cell = (value) => typeof value === "number" ? String(Number(value.toFixed(6))).replace(".", language === "en" ? "." : ",")
       : '"' + (/^[=+\-@\t\r\n]/u.test(value.trimStart()) ? "'" : "") + value.replaceAll('"', '""') + '"';
-    const url = URL.createObjectURL(new Blob(["\uFEFF" + data.map((row) => data[0].map((_,i)=>cell(row[i]??"")).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob(["\uFEFF" + data.map((row) => headers.map((_,i)=>cell(row[i]??"")).join(delimiter)).join("\r\n")], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = "elecity-releve.csv";
+    link.download = t("elecity-releve.csv");
     document.body.append(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  updateInterfaceText();
   for (const element of $$("[data-icon]")) element.innerHTML = icon(element.dataset.icon);
   if (desktop) {
     document.documentElement.dataset.host = "desktop";
     $("#window-controls").hidden = false;
     for (const button of $$("[data-window]")) button.addEventListener("click", () => desktop.control(button.dataset.window));
     desktop.onMaximized((value) => {
+      maximized = value;
       const button = $('[data-window="maximize"]');
       button.innerHTML = icon(value ? "restore" : "maximize");
-      button.setAttribute("aria-label", value ? "Restaurer" : "Agrandir");
+      button.setAttribute("aria-label", t(value ? "Restaurer" : "Agrandir"));
     });
   }
   const canvas = $("#terrain-canvas");
@@ -592,13 +680,13 @@
     if (pick.kind === "lot" || pick.kind === "node") { installation(pick.id); return; }
     if (pick.kind === "cable") {
       const wire=latest.world.cables.find((link)=>link.id===pick.id);
-      openDialog(wire.name,""); openLine=wire.id; drawLine(wire.id);
+      openDialog(cableName(wire),""); openLine=wire.id; drawLine(wire.id);
     }
   }
   try {
     scene = globalThis.GridLabGroundScene.create({
       canvas, labels: $("#terrain-labels"), plots: game.slots, waterway: true,
-      select: inspectMap, context: inspectMap,
+      select: inspectMap, context: inspectMap, translate: t,
       holdStart: () => false, holdCancel() {}, quote() {},
       inspectIssue(target) {
         openDialog("Diagnostic", "");
@@ -624,9 +712,13 @@
   $("#route-toggle").addEventListener("click", () => {
     $("#route-body").hidden = !$("#route-body").hidden;
     $("#route-toggle").setAttribute("aria-expanded", String(!$("#route-body").hidden));
-    $("#route-toggle").setAttribute("aria-label", $("#route-body").hidden ? "Déplier les installations" : "Replier les installations");
+    syncRouteLabel();
   });
-  $("#new-run").addEventListener("click", () => openDialog("Nouvelle partie", `<p>Repartir à midi avec ${credit(game.startingCredits)}, une maison et un groupe d’appoint déjà raccordé ? La progression de cette campagne sera remplacée.</p><button type="button" class="button primary" data-action="reset">Recommencer</button>`));
+  $("#new-run").addEventListener("click", () => openDialog("Nouvelle partie", `<p>${tr("Repartir à midi avec {price}, une maison et un groupe d’appoint déjà raccordé ? La progression de cette campagne sera remplacée.", { price: credit(game.startingCredits) })}</p><button type="button" class="button primary" data-action="reset">${tr("Recommencer")}</button>`));
+  $("#app-settings").addEventListener("click", openSettings);
+  content.addEventListener("change", (event) => {
+    if (event.target.id === "interface-language") changeLanguage(event.target.value);
+  });
   $("#editor-close").addEventListener("click", () => editor.close());
   editor.addEventListener("close", () => { presses = undefined; });
   content.addEventListener("input", (event) => {
@@ -641,7 +733,7 @@
       $("#rate-value").textContent = state.settings[equipment] + " %";
       $("#equipment-meters").innerHTML = meters(readingsFor(equipment));
       $("#editor-error").textContent = "";
-    } catch (error) { $("#editor-error").textContent = error.message; }
+    } catch (error) { $("#editor-error").textContent = localizedError(error.message); }
   });
   content.addEventListener("click", (event) => {
     const target = event.target.closest("button");
@@ -663,7 +755,7 @@
           updateClock();
           break;
       }
-    } catch (error) { $("#editor-error").textContent = error.message; }
+    } catch (error) { $("#editor-error").textContent = localizedError(error.message); }
   });
   document.addEventListener("keydown", (event) => {
     const key = event.key.toUpperCase();
@@ -688,7 +780,7 @@
       readings = undefined;
       renderNetwork();
       notice("Carte chargée en lecture seule.");
-    } catch (error) { notice(error instanceof SyntaxError ? "JSON illisible." : error.message); }
+    } catch (error) { notice(error instanceof SyntaxError ? "JSON illisible." : localizedError(error.message)); }
   });
   updateClock();
   setInterval(updateClock, 250);

@@ -6,11 +6,12 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const entryUrl = "gridlab://app/index.html";
-const resources = new Set(["/index.html", "/campaign.css", "/campaign.js", "/campaign-model.js", "/terrain.css", "/terrain-model.js", "/terrain-scene.js", "/terrain-landscape.js",
+const resources = new Set(["/index.html", "/campaign.css", "/campaign.js", "/campaign-model.js", "/campaign-i18n.js", "/terrain.css", "/terrain-model.js", "/terrain-scene.js", "/terrain-landscape.js",
   "/valley.js", "/valley-scenery.js", "/valley-buildings.js", "/model.js", "/region-model.js", "/desktop/elecity.ico", "/vendor/three.js"]);
 const references = new Set([
   "https://docs.nrel.gov/docs/fy14osti/62641.pdf",
-  "https://fr.electrical-installation.org/frwiki/Calcul_de_la_chute_de_tension_en_ligne_en_r%C3%A9gime_permanent",
+  "https://fr.electrical-installation.org/frwiki/Calcul_de_la_chute_de_tension_en_ligne_en_r%C3%A9gime_permanente",
+  "https://www.electrical-installation.org/enwiki/Calculation_of_voltage_drop_in_steady_load_conditions",
   "https://fr.electrical-installation.org/frwiki/D%C3%A9finition_de_la_puissance_r%C3%A9active",
   "https://www1.eere.energy.gov/water/pdfs/doewater-10107-vol.1-pt1.pdf"
 ]);

@@ -1,6 +1,6 @@
 {
   "name": "elecity",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "productName": "Elecity",
   "description": "Jeu de gestion et simulateur de réseau électrique en 3D",
   "author": "Aymen Gherbi",
@@ -27,7 +27,7 @@
   "build": {
     "appId": "local.gridlab.desktop",
     "artifactName": "Elecity.exe",
-    "files": ["LICENSE", "index.html", "campaign.js", "campaign-model.js", "campaign.css", "terrain-model.js", "valley*.js", "terrain-landscape.js", "terrain-scene.js", "terrain.css", "model.js", "region-model.js", "vendor/**", "desktop/**"],
+    "files": ["LICENSE", "index.html", "campaign.js", "campaign-model.js", "campaign-i18n.js", "campaign.css", "terrain-model.js", "valley*.js", "terrain-landscape.js", "terrain-scene.js", "terrain.css", "model.js", "region-model.js", "vendor/**", "desktop/**"],
     "win": { "icon": "desktop/elecity.ico", "signExecutable": false },
     "portable": { "requestExecutionLevel": "user" }
   }
