@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#19241f">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Elecity · Le Ruisseau</title>
+  <link rel="icon" href="desktop/elecity.ico">
+  <link rel="stylesheet" href="terrain.css">
+  <link rel="stylesheet" href="campaign.css">
+  <script defer src="model.js"></script>
+  <script defer src="region-model.js"></script>
+  <script defer src="terrain-model.js"></script>
+  <script defer src="valley.js"></script>
+  <script defer src="campaign-model.js"></script>
+  <script defer src="vendor/three.js"></script>
+  <script defer src="valley-scenery.js"></script>
+  <script defer src="valley-buildings.js"></script>
+  <script defer src="terrain-landscape.js"></script>
+  <script defer src="terrain-scene.js"></script>
+  <script defer src="campaign.js"></script>
+</head>
+<body>
+  <header class="chrome campaign-chrome">
+    <nav class="mode-tabs surface" aria-label="Modes">
+      <button type="button" data-view="play" aria-current="page"><span data-icon="game"></span>Jeu</button>
+      <button type="button" data-view="research"><span data-icon="search"></span>Recherche et calcul</button>
+    </nav>
+    <button type="button" id="new-run" class="icon-quiet" aria-label="Nouvelle partie" title="Nouvelle partie" data-icon="refresh"></button>
+    <div id="window-controls" hidden>
+      <button type="button" data-window="minimize" aria-label="Réduire" data-icon="minus"></button>
+      <button type="button" data-window="maximize" aria-label="Agrandir" data-icon="maximize"></button>
+      <button type="button" data-window="close" aria-label="Fermer Elecity" data-icon="close"></button>
+    </div>
+  </header>
+  <main>
+    <section id="play-view" aria-label="Partie sur la carte du Ruisseau">
+      <canvas id="terrain-canvas" aria-label="Carte fixe du Ruisseau"></canvas>
+      <div id="terrain-labels"></div>
+      <p id="canvas-fallback" hidden>La carte 3D est indisponible. Les installations restent accessibles dans le panneau de gauche.</p>
+      <aside class="route-panel surface" aria-labelledby="route-title">
+        <header class="route-header">
+          <div><p class="eyebrow"><i data-icon="river"></i> LE RUISSEAU</p><h1 id="route-title">Allumer le village</h1></div>
+          <button class="icon-quiet" type="button" id="route-toggle" aria-expanded="true" aria-controls="route-body" aria-label="Replier les installations" data-icon="chevron"></button>
+        </header>
+        <div class="route-body" id="route-body">
+          <p class="route-objective" id="route-objective"></p>
+          <div class="route-cta" id="route-action"></div>
+          <p class="eyebrow route-lots">INSTALLATIONS</p>
+          <div id="slots"></div>
+        </div>
+      </aside>
+      <aside class="village-panel surface" aria-label="Bilan du village">
+        <div class="village-budget"><span>Trésorerie</span><strong id="money"></strong></div>
+        <dl id="village-summary"></dl>
+        <p id="last-hour" class="last-hour"></p>
+      </aside>
+      <nav class="district-nav surface" aria-label="Points de vue de la vallée">
+        <button data-camera="reset" type="button">Le village</button><button data-camera="plateau" type="button">Les Hauts</button>
+      </nav>
+      <div class="world-controls" role="group" aria-label="Caméra">
+        <button class="square surface" data-camera="left" type="button" aria-label="Panoramique à gauche" data-icon="left"></button>
+        <button class="square surface" data-camera="right" type="button" aria-label="Panoramique à droite" data-icon="right"></button>
+        <button class="square surface" data-camera="in" type="button" aria-label="Zoom avant" data-icon="plus"></button>
+        <button class="square surface" data-camera="out" type="button" aria-label="Zoom arrière" data-icon="minus"></button>
+        <button class="square surface" data-camera="reset" type="button" aria-label="Recentrer la carte" data-icon="focus"></button>
+      </div>
+      <div class="campaign-clock surface">
+        <div><span>HEURE DE JEU</span><strong id="game-time"></strong></div>
+        <div><span id="next-hour">Heure suivante</span><progress id="hour-progress" max="1" value="0" aria-label="Progression de l’heure en cours"></progress></div>
+      </div>
+    </section>
+
+    <section id="research-view" aria-label="Recherche et calcul" hidden>
+      <div class="lab-shell">
+        <header class="lab-intro">
+          <div><p class="eyebrow">LABORATOIRE</p><h1>Recherche et calcul</h1></div>
+          <button type="button" id="csv" class="button">Exporter le relevé CSV</button>
+        </header>
+        <nav class="lab-tabs" aria-label="Outils de recherche">
+          <button type="button" data-lab="network" aria-pressed="true">Réseau et mesures</button>
+          <button type="button" data-lab="electric" aria-pressed="false">Triphasé</button>
+          <button type="button" data-lab="hydraulic" aria-pressed="false">Hydraulique</button>
+          <button type="button" data-lab="glossary" aria-pressed="false">Glossaire</button>
+        </nav>
+        <section id="lab-network" class="lab-content"></section>
+        <section id="lab-electric" class="lab-content" hidden></section>
+        <section id="lab-hydraulic" class="lab-content" hidden></section>
+        <section id="lab-glossary" class="lab-content" hidden></section>
+      </div>
+    </section>
+  </main>
+  <div id="notice" class="surface" role="status" aria-live="polite" hidden></div>
+  <input type="file" id="research-file" accept=".json,application/json" hidden>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <header class="dialog-head"><h2 id="editor-title"></h2><span id="editor-clock"></span><button type="button" id="editor-close" class="icon-quiet" aria-label="Fermer" data-icon="close"></button></header>
+    <div class="dialog-content" id="editor-content"></div>
+    <p id="editor-error" class="dialog-error" role="alert"></p>
+  </dialog>
+</body>
+</html>

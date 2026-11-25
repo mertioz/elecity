@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1b211b">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Elecity · Simulateur de réseau électrique</title>
+  <link rel="icon" href="desktop/elecity.ico">
+  <link rel="stylesheet" href="terrain.css">
+  <script defer src="model.js"></script>
+  <script defer src="region-model.js"></script>
+  <script defer src="projects.js"></script>
+  <script defer src="terrain-model.js"></script>
+  <script defer src="vendor/three.js"></script>
+  <script defer src="terrain-scene.js"></script>
+  <script defer src="terrain.js"></script>
+</head>
+<body>
+  <main id="world" aria-label="Terrain de simulation">
+    <canvas id="terrain-canvas" aria-label="Carte 3D. Le clic droit ouvre les actions de construction."></canvas>
+    <div id="terrain-labels"></div>
+    <p id="canvas-fallback" hidden>Le rendu 3D est indisponible. L’inventaire et les réglages restent accessibles depuis le menu de la carte.</p>
+
+    <header class="chrome">
+      <button class="square surface" id="world-add" type="button" aria-label="Menu de la ville" aria-haspopup="true" data-icon="plus"></button>
+      <button class="button surface" id="information" type="button">Informations</button>
+      <div id="window-controls" hidden>
+        <button type="button" data-window="minimize" aria-label="Réduire" data-icon="minus"></button>
+        <button type="button" data-window="maximize" aria-label="Agrandir" data-icon="maximize"></button>
+        <button type="button" data-window="close" aria-label="Fermer Elecity" data-icon="close"></button>
+      </div>
+    </header>
+
+    <aside class="catalog surface" id="catalog" aria-label="Catalogue de modèles">
+      <button class="catalog-header" type="button" id="catalog-toggle" aria-expanded="true" aria-controls="catalog-body">
+        <span>Modèles</span><i data-icon="chevron"></i>
+      </button>
+      <div class="catalog-body" id="catalog-body"></div>
+    </aside>
+
+    <aside class="inspector surface" aria-label="Mesures du réseau et du modèle sélectionné">
+      <div class="inspector-heading"><span id="selection-type">Réseau</span><button type="button" id="detail-button" class="icon-quiet" aria-label="Détails" title="Détails" data-icon="dots" hidden></button></div>
+      <strong id="selection-title"></strong>
+      <dl id="quick-metrics"></dl>
+      <div class="treasury"><span>Crédits</span><strong id="balance"></strong></div>
+      <button type="button" id="city-life" class="mission">Ville · 0 hab.</button>
+      <button type="button" id="mission" class="mission">Mission · 0/24 h</button>
+    </aside>
+
+    <div class="world-controls" role="group" aria-label="Caméra">
+      <button class="square surface" data-camera="left" type="button" aria-label="Panoramique à gauche" data-icon="left"></button>
+      <button class="square surface" data-camera="right" type="button" aria-label="Panoramique à droite" data-icon="right"></button>
+      <button class="square surface" data-camera="in" type="button" aria-label="Zoom avant" data-icon="plus"></button>
+      <button class="square surface" data-camera="out" type="button" aria-label="Zoom arrière" data-icon="minus"></button>
+      <button class="square surface" data-camera="reset" type="button" aria-label="Recentrer la carte" data-icon="focus"></button>
+    </div>
+
+    <div class="action-banner surface" id="action-banner" hidden>
+      <span id="action-text"></span><button type="button" id="cancel-action" class="icon-quiet" aria-label="Annuler l’action" data-icon="close"></button>
+    </div>
+
+    <section class="timeline surface" aria-label="Frise de simulation">
+      <button class="square play" id="play" type="button" aria-label="Lire la simulation" data-icon="play"></button>
+      <button class="button" id="next-hour" type="button" aria-label="Avancer d’une heure">+1 h</button>
+      <div class="timeline-ticks">
+        <label class="sr-only" for="hour">Prévision en heures</label>
+        <input type="range" min="0" max="23" step="1" value="0" id="hour">
+        <div aria-hidden="true"><span>Maintenant</span><span>+6 h</span><span>+12 h</span><span>+18 h</span><span>+23 h</span></div>
+      </div>
+      <output id="clock" for="hour">J1 · 12:00</output>
+    </section>
+  </main>
+
+  <div id="context-menu" class="context-menu surface" hidden></div>
+  <div id="notice" class="surface" role="status" aria-live="polite" hidden></div>
+  <input type="file" id="map-file" accept=".json,application/json" hidden>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="editor-form">
+      <header class="dialog-head"><h2 id="editor-title"></h2><button type="button" id="editor-close" class="icon-quiet" aria-label="Fermer" data-icon="close"></button></header>
+      <div class="dialog-content" id="editor-content"></div>
+      <p class="dialog-error" id="editor-error" role="alert"></p>
+      <footer class="dialog-actions"><button type="button" id="editor-cancel" class="button">Fermer</button><button type="submit" class="button primary" id="editor-apply">Enregistrer</button></footer>
+    </form>
+  </dialog>
+</body>
+</html>

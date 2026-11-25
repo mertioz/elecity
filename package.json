@@ -1,0 +1,34 @@
+{
+  "name": "elecity",
+  "version": "2.2.1",
+  "productName": "Elecity",
+  "description": "Jeu de gestion et simulateur de réseau électrique en 3D",
+  "author": "Aymen Gherbi",
+  "license": "MIT",
+  "homepage": "https://aymen.site/fr/#elecity",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mertioz/elecity.git"
+  },
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "test": "node --test",
+    "build:vendor": "esbuild three-entry.mjs --bundle --format=iife --global-name=GridLabThree --minify --legal-comments=inline --outfile=vendor/three.js",
+    "start": "electron .",
+    "build:windows": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "45.3.4",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "three": "0.186.1"
+  },
+  "build": {
+    "appId": "local.gridlab.desktop",
+    "artifactName": "Elecity.exe",
+    "files": ["LICENSE", "index.html", "campaign.js", "campaign-model.js", "campaign.css", "terrain-model.js", "valley*.js", "terrain-landscape.js", "terrain-scene.js", "terrain.css", "model.js", "region-model.js", "vendor/**", "desktop/**"],
+    "win": { "icon": "desktop/elecity.ico", "signExecutable": false },
+    "portable": { "requestExecutionLevel": "user" }
+  }
+}

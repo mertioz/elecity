@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#181c23">
+  <meta name="description" content="Simulateur local d’un réseau électrique urbain avec production solaire, stockage et pilotage de la demande.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Elecity · Simulateur de réseau électrique</title>
+  <link rel="icon" href="desktop/elecity.ico">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="model.js"></script>
+  <script defer src="region-model.js"></script>
+  <script defer src="projects.js"></script>
+  <script defer src="vendor/three.js"></script>
+  <script defer src="city.js"></script>
+  <script defer src="region.js"></script>
+  <script defer src="region-ui.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="topbar">
+      <nav class="nav" aria-label="Navigation principale">
+        <button type="button" class="nav-link active" data-view="dashboard" aria-current="page">Ville</button>
+        <button type="button" class="nav-link" data-view="region">Région</button>
+        <button type="button" class="nav-link" data-view="buildings" aria-haspopup="dialog">Bâtiments</button>
+        <button type="button" class="nav-link" data-view="compare" aria-haspopup="dialog">Comparaison</button>
+        <button type="button" class="nav-link" data-view="model" aria-haspopup="dialog">Modèle</button>
+      </nav>
+      <button class="button button-quiet" id="theme-toggle" type="button" aria-label="Passer au thème clair" title="Passer au thème clair"><i data-icon="sun"></i></button>
+      <button class="button button-quiet" id="export" type="button" aria-label="Exporter CSV"><i data-icon="download"></i><span>Exporter CSV</span></button>
+      <div class="window-controls" id="window-controls" aria-label="Fenêtre Elecity" hidden>
+        <button type="button" data-window="minimize" aria-label="Réduire" title="Réduire"><i data-icon="minus"></i></button>
+        <button type="button" data-window="maximize" aria-label="Agrandir" title="Agrandir"><i data-icon="maximize"></i></button>
+        <button type="button" data-window="close" aria-label="Fermer Elecity" title="Fermer"><i data-icon="close"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+      <header class="page-heading">
+        <div>
+          <h1 id="page-title">Réseau électrique de la ville</h1>
+          <p id="page-description">Simulation horaire sur 24 h</p>
+        </div>
+        <div class="page-controls">
+          <div class="project-toolbar" role="group" aria-label="Villes">
+            <label class="sr-only" for="active-city">Ville active</label>
+            <select id="active-city"></select>
+            <button type="button" class="button button-quiet" id="new-city"><i data-icon="plus"></i>Nouvelle ville</button>
+          </div>
+          <div class="scenario-controls" role="group" aria-label="Simulation">
+            <label class="scenario-select">
+              <i id="weather-icon" data-icon="sun"></i>
+              <span class="sr-only">Scénario</span>
+              <select id="scenario"></select>
+              <i class="chevron" data-icon="chevron"></i>
+            </label>
+            <button type="button" class="button button-primary" id="open-settings">Tarifs et scénario</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="dashboard" class="view">
+        <div class="overview-grid">
+          <article class="panel city-panel" aria-labelledby="city-title">
+            <header class="panel-head city-head">
+              <h2 id="city-title">Ville en 3D</h2>
+              <div class="segmented" role="group" aria-label="Stratégie affichée">
+                <button type="button" data-strategy="optimized" aria-pressed="true">Optimisé</button>
+                <button type="button" data-strategy="baseline" aria-pressed="false">Sans pilotage</button>
+              </div>
+            </header>
+            <div id="city-viewport" class="city-viewport">
+              <canvas id="city-canvas" aria-label="Maquette en trois dimensions du réseau de la ville" aria-describedby="map-help"></canvas>
+              <div id="city-labels" class="city-labels"></div>
+              <button type="button" id="city-bubble" class="city-bubble" hidden>
+                <span id="bubble-name" class="bubble-name"></span>
+                <strong id="bubble-value" class="bubble-value"></strong>
+                <span id="bubble-detail" class="bubble-detail"></span>
+                <span class="bubble-action">Modifier les détails <i data-icon="chevron"></i></span>
+              </button>
+              <div id="city-selection" class="city-selection"><span></span><strong></strong></div>
+              <div class="map-controls" id="map-controls" role="group" aria-label="Caméra de la ville">
+                <button type="button" data-camera="rotate" title="Pivoter la vue de 45°" aria-label="Pivoter la vue de 45 degrés"><i data-icon="rotate"></i></button>
+                <button type="button" data-camera="left" title="Déplacer la vue à gauche" aria-label="Déplacer la vue à gauche">←</button>
+                <button type="button" data-camera="right" title="Déplacer la vue à droite" aria-label="Déplacer la vue à droite">→</button>
+                <button type="button" data-camera="zoomIn" title="Zoom avant" aria-label="Zoom avant"><i data-icon="plus"></i></button>
+                <button type="button" data-camera="zoomOut" title="Zoom arrière" aria-label="Zoom arrière"><i data-icon="minus"></i></button>
+                <button type="button" data-camera="reset" title="Recentrer la ville" aria-label="Recentrer la ville"><i data-icon="focus"></i></button>
+              </div>
+              <div id="city-fallback" class="city-fallback" hidden>
+                <p>Affichage schématique. La vue 3D nécessite WebGL 2.</p>
+                <div class="schematic">
+                  <div class="source-nodes">
+                    <button type="button" class="node node-solar" data-asset="solar"><i data-icon="sun"></i><strong>Solaire</strong></button>
+                    <button type="button" class="node node-storage" data-asset="battery"><i data-icon="battery"></i><strong>Batterie</strong></button>
+                    <button type="button" class="node node-grid" data-asset="grid"><i data-icon="tower"></i><strong>Réseau</strong></button>
+                  </div>
+                  <div class="wires wires-input" aria-hidden="true"><b></b><b></b><b></b></div>
+                  <button type="button" class="bus" data-asset="bus"><i data-icon="bolt"></i><span class="map-node-name">Poste central</span></button>
+                  <div class="wires wires-output" aria-hidden="true"><b></b><b></b><b></b></div>
+                  <div class="load-nodes">
+                    <button type="button" class="node" data-asset="residential"><i data-icon="home"></i><strong>Résidentiel</strong></button>
+                    <button type="button" class="node" data-asset="business"><i data-icon="building"></i><strong>Tertiaire</strong></button>
+                    <button type="button" class="node" data-asset="services"><i data-icon="public"></i><strong>Services publics</strong></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="map-legend" aria-label="Légende des câbles">
+              <span><b class="swatch pv"></b>Solaire</span><span><b class="swatch battery"></b>Batterie</span>
+              <span><b class="swatch grid"></b>Réseau</span><span><b class="swatch load"></b>Quartiers</span>
+            </div>
+            <div class="map-tools">
+              <p id="map-help">Clic gauche pour les mesures. Clic droit pour aménager.</p>
+              <button type="button" id="map-edit-action" class="button button-quiet"><i data-icon="plus"></i>Aménager</button>
+            </div>
+          </article>
+
+          <aside class="panel inspector" aria-labelledby="asset-name">
+            <header class="panel-head inspector-head">
+              <span class="inspector-time" id="inspector-time"></span>
+              <span class="network-status" id="network-status"><b></b><span></span></span>
+            </header>
+            <section class="asset-detail">
+              <h2 id="asset-name">Poste central</h2>
+              <div class="asset-reading"><strong id="asset-value"></strong><span id="asset-unit"></span></div>
+              <p id="asset-caption"></p>
+              <button id="open-object" type="button" class="asset-edit">Ouvrir les détails</button>
+            </section>
+            <div class="inspector-alert" id="network-alert"><i data-icon="activity"></i><span id="network-note"></span></div>
+            <section class="tariff-panel" aria-labelledby="tariff-title">
+              <div class="tariff-current">
+                <div><h2 id="tariff-title">Tarif du créneau</h2><p id="price-band"></p></div>
+                <strong id="price-value"></strong>
+              </div>
+              <div class="tariff-switch">
+                <label for="night-toggle"><i data-icon="moon"></i>Heures creuses</label>
+                <input id="night-toggle" class="switch" type="checkbox" role="switch">
+              </div>
+              <div class="tariff-edit"><span id="night-description"></span><button id="edit-night" type="button">Modifier</button></div>
+            </section>
+          </aside>
+
+          <div class="panel time-panel" id="shared-timeline">
+          <div class="timeline">
+            <button id="play" type="button" class="play-button" aria-label="Lire la simulation" aria-pressed="false"><i data-icon="play"></i></button>
+            <div class="timeline-track">
+              <label for="hour" class="sr-only">Heure simulée</label>
+              <input id="hour" type="range" min="0" max="23" value="12" step="1">
+              <div id="night-bar" class="night-bar" title="Les créneaux violets sont en heures creuses." aria-hidden="true"></div>
+              <div class="timeline-labels"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+            </div>
+            <div class="time-interval"><strong id="timeline-time"></strong><span>Heure simulée</span></div>
+          </div>
+          </div>
+        </div>
+
+      </section>
+      <section id="region" class="view" hidden>
+        <div class="overview-grid" id="region-grid">
+          <article class="panel city-panel" aria-labelledby="region-map-title">
+            <header class="panel-head city-head region-head">
+              <h2 id="region-map-title">Carte régionale 3D</h2>
+              <div class="segmented" role="group" aria-label="Pilotage régional">
+                <button type="button" data-strategy="optimized" aria-pressed="true">Optimisé</button>
+                <button type="button" data-strategy="baseline" aria-pressed="false">Sans pilotage</button>
+              </div>
+            </header>
+            <div class="city-viewport region-viewport">
+              <canvas id="region-canvas" aria-label="Sites et câbles de la région, en trois dimensions"></canvas>
+              <div id="region-labels" class="city-labels"></div>
+              <p class="region-fallback" id="region-fallback" hidden>Les sites et leurs mesures sont accessibles dans l’inventaire.</p>
+              <div class="map-controls region-camera" role="group" aria-label="Caméra régionale">
+                <button type="button" data-region-camera="left" title="Gauche" aria-label="Panoramique à gauche">←</button>
+                <button type="button" data-region-camera="right" title="Droite" aria-label="Panoramique à droite">→</button>
+                <button type="button" data-region-camera="up" title="Avancer" aria-label="Panoramique vers le haut">↑</button>
+                <button type="button" data-region-camera="down" title="Reculer" aria-label="Panoramique vers le bas">↓</button>
+                <button type="button" data-region-camera="rotate" title="Pivoter" aria-label="Pivoter la région"><i data-icon="rotate"></i></button>
+                <button type="button" data-region-camera="zoomIn" title="Zoom avant" aria-label="Zoom avant région"><i data-icon="plus"></i></button>
+                <button type="button" data-region-camera="zoomOut" title="Zoom arrière" aria-label="Zoom arrière région"><i data-icon="minus"></i></button>
+                <button type="button" data-region-camera="reset" title="Recentrer" aria-label="Recentrer la région"><i data-icon="focus"></i></button>
+              </div>
+            </div>
+            <div class="map-tools region-tools">
+              <button type="button" class="button button-primary" id="region-link"><i data-icon="cable"></i>Relier</button>
+              <button type="button" class="button button-quiet" id="region-plant"><i data-icon="plus"></i>Centrale nucléaire</button>
+              <button type="button" class="button button-quiet" id="region-inventory">Inventaire</button>
+              <p class="region-controls-hint">Molette pour zoomer · Glisser pour tourner · Glisser avec le bouton droit pour déplacer</p>
+            </div>
+          </article>
+          <aside class="panel inspector region-inspector" aria-labelledby="region-summary-title">
+            <header class="panel-head"><div><h2 id="region-summary-title">Échanges régionaux</h2><p id="region-hour"></p></div></header>
+            <dl id="region-summary" class="metric-list"></dl>
+            <div class="tariff-panel">
+              <h3>Bilan sur 24 h</h3>
+              <dl id="region-day" class="metric-list"></dl>
+            </div>
+            <p class="region-hint">Sélectionne une liaison ou un pylône pour voir la puissance, le courant et les pertes.</p>
+          </aside>
+        </div>
+      </section>
+
+
+
+
+
+  </main>
+
+  <dialog id="object-dialog" class="workspace-dialog" aria-labelledby="object-dialog-title">
+    <header class="dialog-head object-head">
+      <div><h2 id="object-dialog-title"></h2><p id="object-dialog-subtitle"></p></div>
+      <button type="button" class="icon-button" data-dismiss="object-dialog" aria-label="Fermer"><i data-icon="close"></i></button>
+      <div class="segmented object-tabs" role="group" aria-label="Détails de l’objet">
+        <button type="button" data-object-tab="edit" aria-pressed="true">Réglages</button>
+        <button type="button" data-object-tab="now" aria-pressed="false">Mesures</button>
+        <button type="button" data-object-tab="day" aria-pressed="false">Bilan sur 24 h</button>
+      </div>
+    </header>
+    <div class="workspace-dialog-content">
+      <section data-object-panel="edit">
+        <form class="config-form object-form" id="object-form">
+          <label>Nom de l’objet<input name="name" required minlength="2" maxlength="48" type="text"></label>
+          <div id="object-fields"></div>
+          <p class="setting-hint" id="object-error" role="alert"></p>
+          <footer class="config-actions"><button type="submit" class="button button-primary">Enregistrer cet objet</button></footer>
+        </form>
+      </section>
+      <section data-object-panel="now" hidden>
+        <article class="panel object-measurements">
+          <header class="panel-head"><div><h2 id="object-measurement-value"></h2><p id="object-measurement-caption"></p></div></header>
+          <dl class="metric-list" id="object-now-metrics"></dl>
+        </article>
+          <article class="panel readings-panel" id="object-lines">
+            <header class="panel-head">
+              <div><h2>Mesures du réseau</h2><p id="reading-subtitle">Départs triphasés · tension entre phases</p></div>
+            </header>
+            <div class="table-scroll" tabindex="0" aria-label="Mesures électriques par départ">
+              <table>
+                <thead><tr><th scope="col">Ligne</th><th scope="col"><abbr title="Puissance active">P</abbr> (kW)</th><th scope="col"><abbr title="Puissance réactive">Q</abbr> (kvar)</th><th scope="col"><abbr title="Puissance apparente">S</abbr> (kVA)</th><th scope="col"><abbr title="Tension">U</abbr> (kV)</th><th scope="col"><abbr title="Courant">I</abbr> (A)</th><th scope="col">Charge</th></tr></thead>
+                <tbody id="readings"></tbody>
+              </table>
+            </div>
+          </article>
+      </section>
+      <section data-object-panel="day" hidden>
+        <div class="object-day-summary" id="object-specific-day"><dl class="metric-list" id="object-day-metrics"></dl></div>
+        <div id="city-day-summary" hidden>
+        <section class="daily-summary" aria-labelledby="daily-title">
+          <h2 id="daily-title">Bilan sur 24 h</h2>
+          <div class="kpis" id="kpis"></div>
+        </section>
+        </div>
+        <div class="object-day-grid">
+          <article class="panel chart-panel">
+            <header class="panel-head">
+              <div><h2 id="object-chart-title">Profil de puissance</h2><p>Puissance active sur 24 heures</p></div>
+              <span class="time-badge" id="chart-hour"><i data-icon="clock"></i><span></span></span>
+            </header>
+            <div class="legend" id="object-legend" aria-label="Courbes du graphique"></div>
+            <div class="plot">
+              <canvas id="power-chart" role="img" aria-label="Profil de puissance horaire de l’objet sélectionné."></canvas>
+            </div>
+          </article>
+          <div id="city-day-flows" hidden>
+          <article class="panel day-panel">
+            <header class="panel-head"><div><h2>Flux de la journée</h2><p>Énergie cumulée et contraintes</p></div></header>
+            <dl id="day-flows" class="metric-list"></dl>
+          </article>
+          </div>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="regional-dialog" class="workspace-dialog" aria-labelledby="regional-dialog-title">
+    <form id="regional-form">
+      <header class="dialog-head">
+        <div><h2 id="regional-dialog-title"></h2><p id="regional-dialog-subtitle"></p></div>
+        <button type="button" class="icon-button" id="close-regional" aria-label="Fermer"><i data-icon="close"></i></button>
+      </header>
+      <div class="workspace-dialog-content regional-content">
+        <div id="regional-measures"></div>
+        <div id="regional-fields"></div>
+        <p id="regional-error" class="setting-hint" role="alert"></p>
+      </div>
+      <footer class="dialog-footer" id="regional-footer">
+        <button type="button" class="button button-danger" id="region-remove" hidden>Retirer</button>
+        <div class="config-actions"><button type="button" class="button button-quiet" id="regional-cancel">Fermer</button>
+          <button type="submit" class="button button-primary" id="regional-save">Enregistrer</button></div>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="buildings" class="workspace-dialog" aria-labelledby="buildings-title">
+    <header class="dialog-head">
+      <h2 id="buildings-title">Bâtiments</h2>
+      <button type="button" class="icon-button" data-dismiss="buildings" aria-label="Fermer"><i data-icon="close"></i></button>
+    </header>
+    <div class="workspace-dialog-content"><div class="building-editor">
+          <article class="panel config-panel">
+            <header class="panel-head"><div><h2>Taille de la ville</h2><p>La surface de la maquette et le nombre de terrains augmentent ensemble.</p></div></header>
+            <div class="config-form">
+              <label>Extension<select id="city-size"></select></label>
+              <dl id="building-capacity" class="metric-list"></dl>
+            </div>
+          </article>
+          <article class="panel config-panel">
+            <header class="panel-head"><div><h2 id="building-editor-title">Ajouter un bâtiment</h2><p>Le type définit le profil horaire. La pointe est la puissance de référence avant les coefficients et le report.</p></div></header>
+            <form id="building-form" class="config-form">
+              <div class="editor-fields">
+                <label>Type<select name="type"></select></label>
+                <label>Quartier<select name="district"></select></label>
+                <label>Nom du bâtiment<input name="name" type="text" minlength="2" maxlength="48" required></label>
+                <div id="building-power-field"></div>
+              </div>
+              <footer class="config-actions">
+                <button type="button" id="cancel-building" class="button button-quiet" hidden>Annuler</button>
+                <button type="submit" id="save-building" class="button button-primary">Ajouter à la ville</button>
+              </footer>
+            </form>
+          </article>
+        </div>
+        <article class="panel config-panel building-list-panel">
+          <header class="panel-head"><div><h2>Bâtiments ajoutés</h2><p>Les demandes sont incluses dans la charge de leur quartier.</p></div></header>
+          <p id="building-empty" class="building-empty">Choisis un type et un quartier pour ajouter un premier bâtiment.</p>
+          <div class="table-scroll" id="building-table" tabindex="0" aria-label="Bâtiments de la ville" hidden>
+            <table><thead><tr><th scope="col">Bâtiment</th><th scope="col">Quartier</th><th scope="col">Pointe de référence</th><th scope="col">Énergie servie sur 24 h</th><th scope="col">Actions</th></tr></thead><tbody id="building-list"></tbody></table>
+          </div>
+        </article>
+<article class="panel config-panel city-files-panel">
+          <form id="city-name-form" class="config-form">
+            <label>Nom de la ville<input name="name" type="text" maxlength="48" minlength="2" required></label>
+            <button type="submit" class="button button-quiet">Renommer la ville</button>
+          </form>
+            <div class="project-files">
+              <h3>Fichier de la ville</h3>
+              <p>Enregistre les câbles, les profils et les réglages de chaque scénario.</p>
+              <div>
+                <button type="button" class="button button-quiet" id="export-city"><i data-icon="download"></i>Exporter le JSON</button>
+                <button type="button" class="button button-quiet" id="import-city">Importer une ville</button>
+                <input type="file" id="city-file" accept=".json,application/json" hidden>
+              </div>
+            </div>
+        </article>
+    </div>
+  </dialog>
+  <dialog id="compare" class="workspace-dialog" aria-labelledby="compare-title">
+    <header class="dialog-head">
+      <h2 id="compare-title">Comparaison</h2>
+      <button type="button" class="icon-button" data-dismiss="compare" aria-label="Fermer"><i data-icon="close"></i></button>
+    </header>
+    <div class="workspace-dialog-content"><div class="comparison-kpis" id="compare-kpis"></div>
+        <article class="panel comparison-panel">
+          <header class="panel-head"><div><h2>Bilan comparatif</h2><p>Tarifs, capacités, demande totale et stocks de début et de fin identiques pour les deux stratégies.</p></div></header>
+          <div class="table-scroll" tabindex="0" aria-label="Bilan quotidien des stratégies">
+            <table><thead><tr><th scope="col">Indicateur</th><th scope="col">Sans pilotage</th><th scope="col">Optimisé</th><th scope="col">Écart</th></tr></thead><tbody id="comparison"></tbody></table>
+          </div>
+        </article>
+        <article class="panel comparison-panel">
+          <header class="panel-head"><div><h2>Détail heure par heure</h2><p>Achat d’énergie, contribution de la batterie et continuité d’alimentation</p></div></header>
+          <div class="table-scroll" tabindex="0" aria-label="Comparaison horaire des stratégies">
+            <table class="hourly-table"><thead><tr><th scope="col">Heure</th><th scope="col">Tarif (€/kWh)</th><th scope="col">Import sans pilotage (kW)</th><th scope="col">Import optimisé (kW)</th><th scope="col">Batterie optimisée (kW)</th><th scope="col">État de charge final</th><th scope="col">Non servi sans pilotage (kWh)</th><th scope="col">Non servi optimisé (kWh)</th></tr></thead><tbody id="hourly"></tbody></table>
+          </div>
+        </article>
+    </div>
+  </dialog>
+  <dialog id="model" class="workspace-dialog" aria-labelledby="model-title">
+    <header class="dialog-head">
+      <h2 id="model-title">Modèle et unités</h2>
+      <button type="button" class="icon-button" data-dismiss="model" aria-label="Fermer"><i data-icon="close"></i></button>
+    </header>
+    <div class="workspace-dialog-content"><div class="model-grid">
+          <article class="panel model-card">
+            <i data-icon="network"></i><h2>Réseau radial triphasé</h2>
+            <p>Chaque ville a son propre raccordement et un poste qui relie trois quartiers, une installation photovoltaïque et une batterie. Les bâtiments ajoutés contribuent à la charge de leur quartier. Le réseau amont fixe une tension réglable, de 20 kV par défaut.</p>
+            <p>Chaque ligne a une résistance R, une réactance X et une limite de courant. Les quartiers ont un facteur de puissance inductif fixe. Les calculs utilisent la tension nominale et des flux équilibrés entre phases.</p>
+            <div class="equations"><code>Q = P · tan(arccos(cos φ))</code><code>S = √(P² + Q²)</code><code>I ≈ S / (√3 · U)</code><code>ΔU ≈ (R · P + X · Q) / U</code><code>Pertes ≈ 3 · R · I²</code></div>
+            <p>Le calcul multiplie la résistance et la réactance linéiques par la longueur du câble. La tension est calculée au bout de la ligne. L’alerte de courant se déclenche au-delà du courant admissible et le seuil de tension se règle ville par ville. Les valeurs des câbles de démonstration sont illustratives.</p>
+          </article>
+          <article class="panel model-card">
+            <i data-icon="battery"></i><h2>Pilotage et stockage</h2>
+            <p>Le planificateur teste cinq profils de demande avec le même volume journalier. Il compare la demande d’origine et deux répartitions entre 11 h et 16 h, chacune à deux niveaux de report des usages de 17 h à 22 h.</p>
+            <p>Pour chaque profil, une programmation dynamique calcule le plan de charge sur une grille d’états. Elle minimise d’abord l’énergie non servie, puis le coût des achats diminué des ventes, avec un coût d’usure de 0,015 €/kWh déchargé.</p>
+            <div class="equations"><code>Stock suivant = stock + 0,96 · charge − décharge / 0,95</code></div>
+            <p>La réserve de 10 % est conservée. Les deux stratégies laissent le même stock en fin de journée. Le plan optimisé peut acheter au réseau pour charger et ne décharge la batterie que vers la ville. Les limites de courant et de tension sont vérifiées après le calcul du plan.</p>
+          </article>
+          <article class="panel model-card">
+            <i data-icon="sun"></i><h2>Solaire, tarifs et scénarios</h2>
+            <p>La production est estimée à partir d’une irradiance et d’une température synthétiques. La puissance est corrigée par la température des cellules et le rendement AC, puis plafonnée à 85 % de la puissance crête DC.</p>
+            <p>Les heures creuses sont réglables à la minute, avec une plage par défaut de 23 h à 6 h. Dans un créneau partagé, le tarif effectif est pondéré par les minutes avec chaque prix. La puissance reste calculée par heure. Un surplus qui ne peut être stocké ni injecté est écrêté.</p>
+            <p>Le scénario de coupure ouvre le raccordement de 18 h à 21 h. Le poste est supposé capable de maintenir la tension et de fournir le réactif en îlot lorsqu’une source locale est disponible. En cas de manque d’énergie, la réduction de charge s’applique au prorata des quartiers. Sans source locale, le poste passe hors tension.</p>
+          </article>
+          <article class="panel model-card">
+            <i data-icon="cable"></i><h2>Transferts régionaux</h2>
+            <p>Les liaisons répartissent les surplus des villes et l’énergie disponible des centrales. Le calcul réutilise les programmes locaux sur 24 h et remplace une partie des achats extérieurs.</p>
+            <p>Les mesures des liaisons utilisent un modèle triphasé équilibré à facteur de puissance unitaire. Les pertes et la chute de tension dépendent du courant et de la résistance du câble. Le stock de la centrale est exprimé en équivalent électrique et en eau disponible.</p>
+          </article>
+          <article class="panel model-card">
+            <i data-icon="book"></i><h2>Ce que les mesures représentent</h2>
+            <dl class="unit-list">
+              <dt>kW</dt><dd>Puissance active moyenne sur le créneau. 1 kW = 1 000 W.</dd>
+              <dt>kWh</dt><dd>Énergie sur la durée. 1 kW maintenu 1 h = 1 kWh.</dd>
+              <dt>kWc</dt><dd>Puissance crête DC du champ photovoltaïque.</dd>
+              <dt>kvar / kVA</dt><dd>Puissance réactive / apparente.</dd>
+              <dt>kV / A</dt><dd>Tension entre phases / courant de ligne.</dd>
+            </dl>
+            <p>Le modèle suppose une prévision parfaite sur 24 h. Il sert à explorer les flux et la stratégie, avec des données synthétiques et un calcul stationnaire approché.</p>
+          </article>
+        </div>
+        <article class="panel model-card model-sources">
+          <h2>Références de calcul</h2>
+          <ul>
+            <li><a href="https://docs.nrel.gov/docs/fy14osti/62641.pdf" target="_blank" rel="noopener noreferrer">NREL · PVWatts Version 5 Manual, modèle des modules PV</a></li>
+            <li><a href="https://fr.electrical-installation.org/frwiki/Calcul_de_la_chute_de_tension_en_ligne_en_r%C3%A9gime_permanent" target="_blank" rel="noopener noreferrer">Schneider Electric · Chute de tension en ligne</a></li>
+            <li><a href="https://fr.electrical-installation.org/frwiki/D%C3%A9finition_de_la_puissance_r%C3%A9active" target="_blank" rel="noopener noreferrer">Schneider Electric · Puissances active, réactive et apparente</a></li>
+          </ul>
+        </article>
+    </div>
+  </dialog>
+
+  <dialog id="settings" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <header class="dialog-head">
+        <div><h2 id="settings-title">Tarifs et scénario</h2><p id="settings-scenario"></p></div>
+        <button aria-label="Fermer" type="button" id="close-settings" class="icon-button"><i data-icon="close"></i></button>
+      </header>
+      <div id="setting-fields"></div>
+      <footer class="dialog-footer">
+        <button type="button" class="button button-quiet" id="reset-settings">Valeurs du scénario</button>
+        <button type="submit" class="button button-primary"><i data-icon="bolt"></i>Appliquer</button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="map-dialog" aria-labelledby="map-dialog-title">
+    <form id="map-form">
+      <header class="dialog-head">
+        <div><h2 id="map-dialog-title">Aménager</h2><p id="map-dialog-subtitle"></p></div>
+        <button class="icon-button" type="button" id="close-map" aria-label="Fermer"><i data-icon="close"></i></button>
+      </header>
+      <div class="config-form">
+        <div id="map-building-fields" class="editor-fields">
+          <label id="map-type-field">Type<select name="type"></select></label>
+          <label>Nom du bâtiment<input name="name" type="text" maxlength="48" minlength="2" required></label>
+          <label id="map-district-field">Quartier<select name="district"></select></label>
+          <label id="map-lot-field">Terrain<select name="lot"></select></label>
+          <label>Pointe de référence<span class="input-unit"><input name="power" type="number" min="0" step="0.1" required><span>kW</span></span></label>
+        </div>
+        <p id="map-field-note" class="setting-hint"></p>
+        <button type="button" id="map-enlarge" class="button button-quiet" hidden>Agrandir la ville</button>
+      </div>
+      <footer class="dialog-footer">
+        <button type="button" id="map-remove" class="button button-danger" hidden>Retirer le bâtiment</button>
+        <button type="button" id="map-cancel" class="button button-quiet">Annuler</button>
+        <button type="submit" id="map-apply" class="button button-primary">Appliquer</button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="city-dialog" aria-labelledby="city-dialog-title">
+    <form id="new-city-form">
+      <header class="dialog-head">
+        <div><h2 id="city-dialog-title">Nouvelle ville</h2><p>Choisis un point de départ et donne un nom à la ville.</p></div>
+        <button type="button" class="icon-button" id="close-city" aria-label="Fermer"><i data-icon="close"></i></button>
+      </header>
+      <div class="config-form">
+        <label>Nom de la ville<input type="text" name="name" maxlength="48" minlength="2" required placeholder="Ex. Bellevue"></label>
+        <label>Modèle de départ<select name="template"><option value="standard">Réseau de démonstration</option><option value="copy">Copier la ville active</option></select></label>
+      </div>
+      <footer class="dialog-footer"><button type="button" class="button button-quiet" id="cancel-city">Annuler</button><button type="submit" class="button button-primary">Créer la ville</button></footer>
+    </form>
+  </dialog>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">Activez JavaScript pour utiliser le simulateur local.</p></noscript>
+</body>
+</html>
