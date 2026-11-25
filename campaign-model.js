@@ -13,6 +13,20 @@
   const harvestPrice = 8;
   const trainPrice = 96;
   const trainGoal = 3;
+  const dispatchRating = 60;
+  const programs = {
+    dispatch: { start: 7, end: 22, inside: 45, outside: 40, response: "fixed", adjustment: 20 },
+    greenhouse: { start: 7, end: 20, mode: "always" },
+    pumped: { start: 17, end: 23 }
+  };
+  const weatherResponses = { fixed: "Fixe", follow: "Suivre la météo", compensate: "Compenser la météo" };
+  const greenhouseModes = { always: "Toute la journée", scheduled: "Sur la plage" };
+  const skies = [
+    { label: "Ciel dégagé", sun: 1, breeze: 1, river: 1, temperature: 19 },
+    { label: "Nuageux", sun: .72, breeze: .94, river: 1, temperature: 16 },
+    { label: "Pluie", sun: .48, breeze: 1.02, river: 1.15, temperature: 13 },
+    { label: "Venteux", sun: .87, breeze: 1.21, river: 1, temperature: 15 }
+  ];
   const slots = [
     { id: "starter", type: "starter", name: "Groupe d’appoint", x: -52, z: 25, price: 10, note: "Une séquence de cinq boutons prépare l’énergie du créneau." },
     { id: "mill", type: "mill", name: "Moulin hydraulique", x: -68, z: -28, price: 114, note: "Transforme le débit du ruisseau en production continue." },
@@ -26,6 +40,7 @@
     { id: "pump", type: "pump", name: "Pompe de refroidissement", x: -76, z: 75, power: 1.8, flow: 1.6, price: 80, requires: "plant", note: "Remplit le réservoir de la centrale avec l’eau du ruisseau. La pompe doit recevoir du courant pour fonctionner." },
     { id: "breeze", type: "microWind", name: "Éolienne de prairie", x: -40, z: -16, price: 8, power: 2.4, note: "Une première source automatique. Le vent change d’heure en heure et fait aussi tourner le rotor la nuit." },
     { id: "greenhouse", type: "greenhouse", name: "Serre maraîchère", x: 18, z: -33, price: 9, power: 1.2, note: "Six heures alimentées à 90 % donnent une récolte de 8 CR. Le froid de la nuit augmente sa demande." },
+    { id: "dispatch", type: "dispatch", name: "Poste programmable", x: -1, z: 40, price: 160, requires: "apartment-a", note: "Pilote le départ des logements et de la serre. Programme le plafond en kW selon l’heure et la météo." },
     { id: "ridge", type: "station", name: "Poste des Hauts", x: -163, z: -16, price: 180, requires: "apartment-b", note: "Construit deux pylônes et franchit la rivière. Les installations du plateau passent par ce départ moyenne tension." },
     { id: "windfarm", type: "windFarm", name: "Parc éolien des Crêtes", x: -215, z: -62, power: 48, price: 290, requires: "ridge", feed: "ridge", note: "Deux grandes éoliennes alimentent le plateau. Leur surplus peut être mis en réserve pour la gare." },
     { id: "pumped", type: "pumped", name: "Station de pompage-turbinage", x: -226, z: 45, power: 36, capacity: 140, charge: 0, price: 410, requires: "ridge", feed: "ridge", note: "L’eau du bassin supérieur stocke jusqu’à 140 kWh. Choisis quand pomper le surplus renouvelable et quand turbiner." },
@@ -33,9 +48,55 @@
   ];
   const byId = new Map(slots.map((slot) => [slot.id, slot]));
   const adjustable = { starter: "combustible", mill: "débit d’eau", plant: "combustible et eau de refroidissement", pump: "courant", breeze: "vent", windfarm: "vent" };
-  const storageModes = { auto: "Automatique", charge: "Pompage seul", discharge: "Turbinage seul" };
+  const storageModes = { auto: "Automatique", charge: "Pompage seul", discharge: "Turbinage seul", scheduled: "Programme horaire" };
   const hub = grid.device("poste", "substation", -7, 1);
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  function inWindow(hour, { start, end }) {
+    if (start === end) return true;
+    return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  }
+
+  function weatherAt(tick) {
+    const sky = skies[Math.floor(tick / 24) % skies.length];
+    const hour = tick % 24;
+    const wind = grid.windAt(tick) * sky.breeze;
+    const sunlight = grid.sunAt(hour) * sky.sun;
+    const renewable = wind >= 10 || sunlight >= .65 ? 1 : wind < 7 && sunlight < .35 ? -1 : 0;
+    const temperature = Math.round(sky.temperature + 4 * Math.sin((hour - 8) * Math.PI / 12));
+    return { label: sky.label, sun: sky.sun, wind, river: sky.river, temperature, renewable };
+  }
+
+  function validProgramField(key, value) {
+    if (key === "response") return Object.hasOwn(weatherResponses, value);
+    if (key === "mode") return Object.hasOwn(greenhouseModes, value);
+    const max = key === "start" || key === "end" ? 23 : key === "adjustment" ? 50 : dispatchRating;
+    return Number.isInteger(value) && value >= 0 && value <= max;
+  }
+
+  function programsFrom(raw) {
+    return Object.fromEntries(Object.entries(programs).map(([id, defaults]) => [id,
+      Object.fromEntries(Object.entries(defaults).map(([key, value]) => {
+        const saved = raw?.[id]?.[key];
+        return [key, validProgramField(key, saved) ? saved : value];
+      }))
+    ]));
+  }
+
+  function setProgram(state, id, values) {
+    if (!Object.hasOwn(programs, id) || !state.built.includes(id)) throw new Error("Programme indisponible pour cette installation.");
+    const next = { ...state.programs[id], ...values };
+    if (!Object.keys(programs[id]).every(key => validProgramField(key, next[key]))) throw new Error("Vérifie les heures et les limites de puissance.");
+    return { ...state, programs: programsFrom({ ...state.programs, [id]: next }) };
+  }
+
+  function dispatchAt(program, hour, weather) {
+    const active = inWindow(hour, program);
+    const base = active ? program.inside : program.outside;
+    const direction = program.response === "follow" ? 1 : program.response === "compensate" ? -1 : 0;
+    const limit = clamp(base * (1 + direction * weather.renewable * program.adjustment / 100), 0, dispatchRating);
+    return { active, base, limit };
+  }
 
   function hydraulics(flow, head, efficiency, hours = 1) {
     const power = 9.81 * flow * head * efficiency;
@@ -54,6 +115,10 @@
 
   function worldOf(state, production = {}) {
     const starter = grid.blank("ruisseau", "Le Ruisseau");
+    const tick = 12 + (state.game?.elapsed ?? 0);
+    const hour = tick % 24;
+    const weather = production.weather ?? weatherAt(tick);
+    const hasDispatch = state.built.includes("dispatch");
     const nodes = [hub];
     const cables = [];
     for (const id of state.built) {
@@ -62,7 +127,9 @@
       const settings = Object.fromEntries(grid.deviceParameters(slot.type).filter((key) => slot[key] !== undefined)
         .map((key) => [key, slot[key]]));
       nodes.push({ ...node, ...settings, name: slot.name });
-      cables.push({ ...grid.cableDefaults, id: "liaison-" + id, name: "Départ " + slot.name, from: id === "ridge" ? "west-pole" : slot.feed ?? "poste", to: id });
+      const guided = hasDispatch && ["house", "apartment-a", "apartment-b", "greenhouse"].includes(id);
+      const from = guided ? "dispatch" : id === "ridge" ? "west-pole" : slot.feed ?? "poste";
+      cables.push({ ...grid.cableDefaults, id: "liaison-" + id, name: "Départ " + slot.name, from, to: id });
     }
     if (state.built.includes("ridge")) {
       nodes.push({ ...grid.device("east-pole", "pole", -66, -5), name: "Pylône de la prairie" },
@@ -78,12 +145,22 @@
       );
     }
     const verified = grid.normalize({ ...starter, nodes, cables, game: state.game });
+    verified.weather = weather;
+    if (hasDispatch) {
+      verified.dispatch = dispatchAt(state.programs.dispatch, hour, weather);
+      verified.cables.find(cable => cable.to === "dispatch").powerLimit = verified.dispatch.limit;
+    }
     // Les puissances instantanées ne sont pas des réglages saisis au dixième.
     for (const node of verified.nodes) {
       node.elevation = node.type === "water" ? 0 : valley.height(node.x, node.z);
       if (Object.hasOwn(production, node.id)) node.power = production[node.id];
       if (grid.catalog[node.type].kind === "wind") node.windSetting = state.settings[node.id] / 100;
-      if (node.id === "pumped") node.storageMode = state.storageMode;
+      if (node.id === "pumped") node.storageMode = state.storageMode === "scheduled"
+        ? inWindow(hour, state.programs.pumped) ? "discharge" : "charge" : state.storageMode;
+      if (node.id === "greenhouse") {
+        const program = state.programs.greenhouse;
+        if (program.mode === "scheduled" && !inWindow(hour, program)) node.power = 0;
+      }
       if (node.id === "plant" && production.plantPenalty !== undefined) {
         node.fuelFactor = production.plantPenalty;
         node.waterRate *= production.plantPenalty;
@@ -95,7 +172,7 @@
 
   function newGame() {
     const state = { version: 1, built: ["house", "starter"], settings: Object.fromEntries(Object.keys(adjustable).map((id) => [id, 100])), fuel: 180,
-      manual: null, served: 0, income: 0, last: null, game: null, storageMode: "auto",
+      manual: null, served: 0, income: 0, last: null, game: null, storageMode: "auto", programs: programsFrom(),
       jobs: { cropHours: 0, harvests: 0, loading: 0, trains: 0, missed: 0 } };
     const game = worldOf(state).game;
     return { ...state, game: { ...game, budget: startingCredits, city: {
@@ -114,7 +191,7 @@
         Number.isInteger(raw.settings?.[id]) ? clamp(raw.settings[id], 0, 150) : 100]));
       const finite = (n, fallback) => typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : fallback;
       const state = { ...valid, built, settings, game: raw.game ?? valid.game,
-        fuel: finite(raw.fuel, 180), served: finite(raw.served, 0), income: finite(raw.income, 0) };
+        fuel: finite(raw.fuel, 180), served: finite(raw.served, 0), income: finite(raw.income, 0), programs: programsFrom(raw.programs) };
       if (Object.hasOwn(storageModes, raw.storageMode)) state.storageMode = raw.storageMode;
       for (const key of Object.keys(state.jobs)) if (Number.isSafeInteger(raw.jobs?.[key]) && raw.jobs[key] >= 0) state.jobs[key] = raw.jobs[key];
       state.jobs.cropHours %= harvestHours;
@@ -196,13 +273,14 @@
 
   function production(state) {
     const tick = 12 + state.game.elapsed;
+    const weather = weatherAt(tick);
     const manualRate = state.settings.starter / 100;
     const wheelRate = state.settings.mill / 100;
     const heads = state.manual?.at === state.game.elapsed ? state.manual.hits : 0;
     const scored = heads * 2 + (heads === 5 ? 3 : 0);
     const fuelPerKwh = penalty(manualRate) / 0.32;
     const starter = state.built.includes("starter") ? Math.min(scored * manualRate, state.fuel / fuelPerKwh) : 0;
-    const flow = river(tick);
+    const flow = river(tick) * weather.river;
     const wheelPenalty = penalty(wheelRate);
     const used = state.built.includes("mill") ? Math.min(flow, flow * 0.43 * wheelRate * wheelPenalty) : 0;
     const mill = hydraulics(used, hydraulicHead, hydraulicEfficiency / wheelPenalty).power;
@@ -215,7 +293,7 @@
     const pumpRate = state.settings.pump / 100;
     const pump = byId.get("pump").power * pumpRate ** 3;
     const pumpFlow = byId.get("pump").flow * pumpRate;
-    return { starter, mill, flow, used, fuelPerKwh, scored, millPenalty: wheelPenalty,
+    return { starter, mill, flow, used, fuelPerKwh, scored, millPenalty: wheelPenalty, weather,
       plant, plantPenalty, plantWaterRate, plantAvailable, pump, pumpFlow };
   }
 
@@ -264,8 +342,9 @@
     });
   }
 
-  const api = { storageKey, startingCredits, slots, adjustable, storageModes, harvestHours, harvestPrice, trainPrice, trainGoal,
-    income, fuelPack, hydraulicHead, hydraulicEfficiency, newGame, load, worldOf, buy, requirement, tune, setStorageMode, refuel, manual, sequence, production, advance, forecast, hydraulics, electrical };
+  const api = { storageKey, startingCredits, slots, adjustable, storageModes, weatherResponses, greenhouseModes,
+    harvestHours, harvestPrice, trainPrice, trainGoal, dispatchRating, income, fuelPack, hydraulicHead, hydraulicEfficiency,
+    newGame, load, worldOf, buy, requirement, tune, setStorageMode, setProgram, refuel, manual, sequence, production, advance, forecast, hydraulics, electrical };
   if (typeof module === "object") module.exports = api;
   else globalThis.GridLabCampaign = api;
 })();

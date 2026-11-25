@@ -183,3 +183,65 @@ test("Une serre sans courant et un quai mal alimenté ne rapportent aucune prime
   assert.equal(day.at(-1).state.jobs.missed,2);
   assert.deepEqual(state.jobs,{cropHours:0,harvests:0,loading:0,trains:0,missed:0});
 });
+
+test("Le poste limite réellement le départ du quartier et sa plage peut traverser minuit", () => {
+  let state = game.newGame();
+  state.game.budget = 1000;
+  assert.throws(() => game.buy(state, "dispatch"), /Les Tilleuls/);
+  for (const id of ["apartment-a", "solar", "hospital", "dispatch"]) state = game.buy(state, id);
+  state.game.city.homes["apartment-a"].people = 16;
+  state = game.setProgram(state, "dispatch", { start: 22, end: 6, inside: 0, outside: 2, response: "fixed" });
+  const forecast = game.forecast(state, 20);
+  const midday = forecast[0];
+  assert.equal(midday.world.cables.find(cable => cable.to === "house").from, "dispatch");
+  assert.equal(midday.world.cables.find(cable => cable.to === "hospital").from, "poste");
+  assert.ok(Math.abs(midday.row.cables["liaison-dispatch"].sent - 2) < 1e-5);
+  assert.ok(midday.row.nodes.house.received + midday.row.nodes["apartment-a"].received <= 2);
+  assert.ok(midday.row.nodes.hospital.received > .95 * midday.row.nodes.hospital.demand);
+  assert.equal(forecast[10].row.hour, 22);
+  assert.equal(forecast[10].row.cables["liaison-dispatch"].open, true);
+  assert.equal(forecast[17].row.hour, 5);
+  assert.equal(forecast[17].row.cables["liaison-dispatch"].sent, 0);
+  assert.equal(forecast[18].world.dispatch.limit, 2);
+  assert.equal(forecast[18].row.cables["liaison-dispatch"].open, false);
+  assert.throws(() => game.setProgram(state, "dispatch", { outside: -4 }), /limites/);
+  assert.deepEqual(game.load({ getItem: () => JSON.stringify(state) }).programs, state.programs);
+});
+
+test("La météo modifie la prévision de production et le réglage du poste avec un plafond matériel", () => {
+  let state = game.newGame();
+  state.game.budget = 1000;
+  for (const id of ["apartment-a", "solar", "dispatch"]) state = game.buy(state, id);
+  state = game.setProgram(state, "dispatch", { start: 0, end: 0, inside: 20, response: "follow", adjustment: 25 });
+  const forecast = game.forecast(state, 48);
+  assert.equal(forecast[0].world.dispatch.limit, 25);
+  const weak = forecast.find(({ row }) => row.weather.renewable === -1);
+  assert.ok(weak);
+  assert.equal(weak.world.dispatch.limit, 15);
+  assert.equal(game.advance(game.setProgram(state, "dispatch", { response: "compensate" })).world.dispatch.limit, 15);
+  assert.equal(game.advance(game.setProgram(state, "dispatch", { inside: 55, adjustment: 50 })).world.dispatch.limit, game.dispatchRating);
+  assert.notEqual(forecast[0].row.weather.label, forecast[24].row.weather.label);
+  assert.ok(forecast[0].row.nodes.solar.available > forecast[24].row.nodes.solar.available);
+});
+
+test("Les programmes de la serre et du stockage déplacent leurs usages sans casser une ancienne partie", () => {
+  let state = game.newGame();
+  state.game.budget = 1500;
+  for (const id of ["greenhouse", "apartment-b", "ridge", "windfarm", "pumped"]) state = game.buy(state, id);
+  state = game.setProgram(state, "greenhouse", { start: 7, end: 18, mode: "scheduled" });
+  state = game.setProgram(state, "pumped", { start: 18, end: 23 });
+  state = game.setStorageMode(state, "scheduled");
+  const forecast = game.forecast(state, 12);
+  assert.ok(forecast[0].row.nodes.greenhouse.demand > 0);
+  assert.ok(forecast[0].row.nodes.pumped.charge > 0);
+  assert.equal(forecast[6].row.hour, 18);
+  assert.equal(forecast[6].row.nodes.greenhouse.demand, 0);
+  assert.equal(forecast[6].row.nodes.pumped.charge, 0);
+  assert.equal(forecast[6].world.nodes.find(node => node.id === "pumped").storageMode, "discharge");
+  assert.equal(forecast[11].world.nodes.find(node => node.id === "pumped").storageMode, "charge");
+  const old = { ...state, storageMode: "auto" };
+  delete old.programs;
+  const restored = game.load({ getItem: () => JSON.stringify(old) });
+  assert.ok(restored.built.includes("pumped"));
+  assert.deepEqual(restored.programs, game.newGame().programs);
+});

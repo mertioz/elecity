@@ -676,7 +676,8 @@
       if (lightingHour !== row.hour) {
         lightingHour=row.hour;
         const twilight=1-land.ramp(.0,.55,Math.abs(arc));
-        sun.intensity=.23+2.12*day+.42*twilight;
+        const sunlight = row.weather?.sun ?? 1;
+        sun.intensity=.23+(2.12*day+.42*twilight)*sunlight;
         sun.color.setHex(arc<-.15?0x9bb9df:twilight>.38?0xffc290:0xffe7bb);
         const a=(row.hour-6)*Math.PI/12;
         sun.position.set(-60+Math.cos(a)*240,95+day*195,116+60*Math.sin(a-.4));
@@ -684,7 +685,7 @@
         sky.color.setHex(arc<0?0xb4cae6:0xe5f0f4);
         scene.background.setHex(arc<-.15?0x50677a:twilight>.38?0xb7b29c:0xa5bdba);
         scene.fog.color.copy(scene.background);
-        landscape.daylight(Math.min(1,day+twilight*.38));
+        landscape.daylight(Math.min(1,day+twilight*.38)*(.65+.35*sunlight));
         renderer.shadowMap.needsUpdate=true;
       }
       for (const lamp of lamps) {

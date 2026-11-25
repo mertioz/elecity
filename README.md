@@ -1,6 +1,6 @@
 # Elecity · Le Ruisseau
 
-Elecity est un jeu de gestion électrique en 3D. Le village et le plateau des Hauts bordent la même rivière. Le laboratoire affiche les mesures et les prévisions de la partie. [Présentation du jeu](https://aymen.site/fr/#elecity)
+Elecity est un jeu éducatif de gestion électrique en 3D et un outil de simulation. Le village et le plateau des Hauts bordent la même rivière. Le laboratoire affiche les mesures et les prévisions de la partie. [Présentation du jeu](https://aymen.site/fr/#elecity)
 
 ## Jeu
 
@@ -18,6 +18,12 @@ Lance l’application avec `npm start` ou ouvre **Elecity.exe** après compilati
 Avec les premiers crédits, l’éolienne de prairie fournit une production variable pour 8 CR. La serre coûte 9 CR et vend une récolte de 8 CR après six heures alimentées à au moins 90 %. Les parcelles se trouvent depuis le catalogue ou les repères « + » sur la carte.
 
 Après Les Terrasses, le poste des Hauts ouvre la traversée moyenne tension et ses deux pylônes. Le parc éolien des Crêtes peut charger la station de pompage-turbinage avec le surplus. Elle stocke 140 kWh et débite jusqu’à 36 kW, avec une consigne automatique, de pompage ou de turbinage. La halle ferroviaire rapporte 96 CR lorsque chacun des trois créneaux précédant un départ de 08 h ou de 20 h est alimenté à 95 %. Les ateliers du village sont rémunérés par les récoltes et les trains. L’objectif final associe 30 habitants, une journée de service fiable et trois trains expédiés.
+
+## Programmes horaires
+
+Après Les Tilleuls, le poste programmable coûte 160 CR. Il plafonne le départ commun vers les logements et la serre. Règle la puissance maximale pendant une plage et hors plage. Le mode météo peut faire monter le plafond lorsque le vent ou le soleil est fort, ou l’inverse pour compenser leur faiblesse. Le poste reste limité à 60 kW. La météo simulée fait varier le débit du ruisseau, le vent et la production solaire. Le laboratoire affiche le plafond et la puissance réellement livrée à chaque heure prévue.
+
+Une plage peut traverser minuit. Deux heures identiques couvrent la journée. La serre peut se mettre en veille hors plage. En mode horaire, le bassin turbine pendant sa plage et pompe le surplus renouvelable le reste du temps.
 
 ## Recherche et calcul
 

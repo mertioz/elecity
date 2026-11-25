@@ -15,6 +15,7 @@
   function windAt(tick) {
     return Math.max(0, 8.0 + 2.55 * Math.sin(tick * Math.PI / 15 - .65) + 2.15 * Math.cos(tick * Math.PI / 28 + .45) + 1.05 * Math.sin(tick * Math.PI / 6));
   }
+  const sunAt = (hour) => hour < 6 || hour >= 19 ? 0 : Math.sin((hour - 5.5) / 13 * Math.PI);
   function windPower(rated, wind, setting) {
     if (wind < 3 || wind >= 24) return 0;
     const resource = (wind ** 3 - 27) / (10 ** 3 - 27);
@@ -40,6 +41,7 @@
     windFarm: { label: "Parc éolien des Crêtes", icon: "bolt", kind: "wind", radius: 19, power: 48 },
     greenhouse: { label: "Serre maraîchère", icon: "building", kind: "load", radius: 9, power: 1.2, profile: (hour) => hour < 7 || hour >= 19 ? 1 : .46 },
     station: { label: "Poste des Hauts", icon: "bolt", kind: "relay", radius: 10 },
+    dispatch: { label: "Poste programmable", icon: "bolt", kind: "relay", radius: 10 },
     pumped: { label: "Station de pompage-turbinage", icon: "water", kind: "battery", radius: 17, power: 36, capacity: 140, charge: 0, chargeEfficiency: .86, dischargeEfficiency: .88 },
     freight: { label: "Halle ferroviaire", icon: "building", kind: "load", radius: 16, power: 34, profile: (hour) => freightLoading(hour) ? 1 : .035 },
     pole: { label: "Poteau MT", group: "distribution", icon: "tower", kind: "relay", radius: 2 },
@@ -377,8 +379,8 @@
     const resistance = length * cable.resistance;
     const alpha = resistance / (1000 * voltage ** 2);
     return { ...cable, direct, length, imposedLength: cable.length, resistance, voltage, alpha,
-      capacity: Math.min(Math.sqrt(3) * voltage * cable.amperage, 0.1 / alpha),
-      open: !cable.enabled || !a.enabled || !b.enabled
+      capacity: Math.min(Math.sqrt(3) * voltage * cable.amperage, 0.1 / alpha, cable.powerLimit ?? Infinity),
+      open: !cable.enabled || !a.enabled || !b.enabled || cable.powerLimit === 0
     };
   }
 
@@ -592,13 +594,14 @@
     const rows = Array.from({ length: count }, (_, offset) => {
       const tick = start + offset;
       const hour = tick % 24;
-      const wind = windAt(tick);
+      const weather = world.weather;
+      const wind = weather?.wind ?? windAt(tick);
       const tariff = model.tariffAt(hour, world.tariffs ?? tariffsOf());
       const links = definitions.map((line) => ({ ...line, direction: 0, sent: 0, received: 0, loss: 0, issues: [] }));
       const lines = links.filter((line) => line.medium !== "water");
       const pipes = links.filter((line) => line.medium === "water");
       const plans = pumpingPlans(objects, pipes, stocks);
-      const sun = hour < 6 || hour >= 19 ? 0 : Math.sin((hour - 5.5) / 13 * Math.PI) * scenario.irradiance;
+      const sun = sunAt(hour) * scenario.irradiance * (weather?.sun ?? 1);
       const sourceEnabled = !(scenario.outage && hour >= scenario.outage[0] && hour < scenario.outage[1]);
       const suppliers = objects.flatMap((node) => {
         const kind = catalog[node.type].kind;
@@ -698,7 +701,7 @@
       const buildingDemand = demand.reduce((total, entry) => total + entry.demand, 0);
       const buildingServed = demand.reduce((total, entry) => total + Math.min(entry.demand, entry.received), 0);
       const events = evolveCity(city, objects, data, demand, tick);
-      return { hour, tick, wind, nodes: data, cables: Object.fromEntries(links.map((line) => [line.id, line])),
+      return { hour, tick, wind, weather, nodes: data, cables: Object.fromEntries(links.map((line) => [line.id, line])),
         tariff, purchased, bill: tariff.price * purchased, events,
         demand: total("demand"), served: total("received"), generated: total("generated"), buildingDemand, buildingServed,
         losses: lines.reduce((sum, line) => sum + line.loss, 0), charged: total("charge"), stored: total("stored"),
@@ -769,7 +772,7 @@
   const api = { storageKey, land, groups, catalog, fields, tariffFields, deviceParameters, cableDefaults, cableKeys,
     valueOf, nameOf, blank, device, normalize, load, profileOf, simulate, forecast, advance, refuel, resetGame,
     diagnostics, connectionIssue, connectionMedium, fuelPrice, servicePrice, missionHours, credit, prices, freightLoading,
-    cablePrice, spend, refund };
+    cablePrice, spend, refund, windAt, sunAt };
   if (typeof module === "object") module.exports = api;
   else globalThis.GridLabTerrain = api;
 })();

@@ -50,10 +50,11 @@
       box(0x667e76,x+8.10,3.04,z,.16,.18,2.33);
       return 5.65;
     }
-    if (type === "station") {
+    if (type === "station" || type === "dispatch") {
       box(0x858b7f,x,.18,z,17,.36,12);
-      building(x-4.7,z,5.3,7.2,3.55,0xb8b9a9,0x647875);
+      building(x-4.7,z,5.3,7.2,3.55,0xb8b9a9,type === "dispatch" ? 0x456878 : 0x647875);
       box(0x798982,x+3,1.56,z,4.8,2.50,3.0);
+      if (type === "dispatch") box(0x98b5b5,x+3,2.15,z+1.53,1.95,.49,.10);
       for (let i=-2;i<=2;i++) box(0x536966,x+3+i*.8,1.60,z+1.63,.22,2.15,.77);
       for (const dx of [-.8,7.25]) {
         box(0x6c7a73,x+dx,3.08,z-3.8,.30,5.91,.32);

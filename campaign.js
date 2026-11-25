@@ -17,7 +17,8 @@
     left: '<path d="m11 5-7 7 7 7m-7-7h16"/>', right: '<path d="m13 5 7 7-7 7M4 12h16"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
     focus: '<path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/><circle cx="12" cy="12" r="2"/>',
-    river: '<path d="M3 7c4 0 4 3 9 3s5-3 9-3M3 13c4 0 4 3 9 3s5-3 9-3M3 19c4 0 4 3 9 3s5-3 9-3"/>'
+    village: '<path d="m3 11 9-7 9 7M5 10v10h14V10M10 20v-6h4v6"/>',
+    hills: '<path d="m3 19 7-12 5 8 2-4 4 8H3zm5-8 2-1 2 2"/>'
   };
   const icon = (key) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${drawIcon[key]}</svg>`;
   const escape = (value) => String(value).replace(/[&<>"']/g, (key) =>
@@ -114,6 +115,7 @@
   }
 
   const inhabitants = () => Object.values(state.game.city.homes).reduce((sum, node) => sum + node.people, 0);
+  const weatherText = (weather) => `${t(weather.label)} · ${u(weather.temperature, "°C", 0)}`;
 
   function objective() {
     if (!state.built.includes("starter")) return ["Premier courant", "Installe le groupe d’appoint, puis prépare une heure de production.", "Voir le groupe d’appoint", "starter"];
@@ -145,7 +147,7 @@
 
   const groups = [
     ["Premières installations", ["starter","house","breeze","greenhouse","mill"]],
-    ["Quartier du Pont", ["apartment-a","apartment-b","battery","solar","hospital","plant","pump"]],
+    ["Quartier du Pont", ["apartment-a","apartment-b","dispatch","battery","solar","hospital","plant","pump"]],
     ["Plateau des Hauts", ["ridge","windfarm","pumped","freight"]]
   ];
   function renderCatalog() {
@@ -174,15 +176,10 @@
     $("#money").textContent = credit(state.game.budget);
     $("#village-summary").innerHTML = meters([
       ["Habitants", format(inhabitants(), 0)],
-      ["Bâtiments servis", format(latest.row.buildingServed, 1) + " / " + u(latest.row.buildingDemand, "kW", 1)],
-      ["Vent", u(latest.row.wind, "m/s",1)],
-      ["Service fiable", format(state.game.continuity, 0) + " / 24 h"],
-      ["Recettes cumulées", credit(state.income)],
-      ...(state.built.includes("freight") ? [["Trains expédiés",String(state.jobs.trains)]] : [])
+      ["Bâtiments servis", format(latest.row.buildingServed, 1) + " / " + u(latest.row.buildingDemand, "kW", 1)]
     ]);
-    const event = state.last?.freight ? t("train expédié") : state.last?.crop ? t("récolte vendue") : "";
-    $("#last-hour").textContent = state.last ? t("Dernier créneau · +{revenue}", { revenue: credit(state.last.credit) }) + (event ? " · " + event : "") : "";
-    $("#game-time").textContent = stamp(12 + state.game.elapsed);
+    $("#game-time").textContent = stamp(latest.row.tick);
+    $("#game-weather").textContent = weatherText(latest.row.weather);
     const [title, detail, label, id] = objective();
     $("#route-title").textContent = t(title);
     $("#route-objective").textContent = t(detail);
@@ -191,6 +188,20 @@
       routeAction = action;
       $("#route-action").innerHTML = `<button class="button primary" type="button" data-installation="${id}">${tr(label)}</button>`;
     }
+  }
+
+  function summaryMeters() {
+    const event = state.last?.freight ? t("train expédié") : state.last?.crop ? t("récolte vendue") : "";
+    return meters([
+      ["Trésorerie", credit(state.game.budget)],
+      ["Habitants", format(inhabitants(), 0)],
+      ["Météo", weatherText(latest.row.weather)],
+      ["Vent", u(latest.row.wind, "m/s", 1)],
+      ["Service fiable", format(state.game.continuity, 0) + " / 24 h"],
+      ["Recettes cumulées", credit(state.income)],
+      ["Recettes du dernier créneau", state.last ? "+" + credit(state.last.credit) + (event ? " · " + event : "") : "—"],
+      ...(state.built.includes("freight") ? [["Trains expédiés", format(state.jobs.trains, 0)]] : [])
+    ]);
   }
 
   function change(next, message, reset) {
@@ -210,6 +221,7 @@
       rememberClock();
       const currentMeters = editor.open && $("#equipment-meters");
       if (currentMeters) currentMeters.innerHTML = meters(readingsFor(equipment));
+      if (editor.open && $("#summary-meters")) $("#summary-meters").innerHTML = summaryMeters();
       if (editor.open && $("#build-budget")) refreshConstruction(slotOf(equipment));
       if (editor.open && openFault) drawFault(openFault);
       if (editor.open && openLine) drawLine(openLine);
@@ -221,11 +233,7 @@
       }
       if (!$("#research-view").hidden && lab === "network" && dataset === "campaign") renderNetwork(true);
     }
-    const remaining = Math.max(0, nextHour - now);
-    const seconds = Math.ceil(remaining / 1000) + " s";
-    $("#next-hour").textContent = t("Heure suivante · {seconds}", { seconds });
-    $("#hour-progress").value = 1 - remaining / hourMs;
-    $("#editor-clock").textContent = stamp(12 + state.game.elapsed) + " · " + seconds;
+    if (editor.open) $("#editor-clock").textContent = stamp(latest.row.tick);
   }
 
   function openDialog(title, html) {
@@ -233,6 +241,7 @@
     openFault = undefined;
     openLine = undefined;
     $("#editor-title").textContent = t(title);
+    $("#editor-clock").textContent = stamp(latest.row.tick);
     $("#editor-error").textContent = "";
     content.innerHTML = html;
     editor.scrollTop = 0;
@@ -262,17 +271,25 @@
   function readingsFor(id) {
     const reading = latest.row.nodes[id];
     const source = latest.sources;
+    if (id === "dispatch") return [
+      ["Plafond programmé", u(latest.world.dispatch.base, "kW")],
+      ["Plafond après météo", u(latest.world.dispatch.limit, "kW")],
+      ["Puissance livrée par le poste", u(reading.outbound, "kW")],
+      ["Météo", weatherText(latest.row.weather)]
+    ];
     if (id === "breeze" || id === "windfarm") return [
       ["Vent du créneau",u(latest.row.wind,"m/s",1)], ["Puissance nominale",u(slotOf(id).power,"kW")],
       ["Disponible avec ce vent",u(reading.available,"kW")], ["Injectée sur le réseau",u(reading.generated,"kW")]
     ];
-    if (id === "greenhouse") return [["Reçue / demandée",u(reading.received,"kW")+" / "+u(reading.demand,"kW")],
+    if (id === "greenhouse") return [["Fonctionnement",t(reading.demand > 0 ? "En service" : "En veille programmée")],
+      ["Reçue / demandée",u(reading.received,"kW")+" / "+u(reading.demand,"kW")],
       ["Temps de culture",state.jobs.cropHours+" / "+game.harvestHours+" h"],["Récoltes vendues",String(state.jobs.harvests)], ["Vente par récolte",credit(game.harvestPrice)]];
     if (id === "freight") return [["Quai",t(grid.freightLoading(latest.row.hour)?"Chargement en cours":"En attente du train")],
       ["Créneaux de chargement",t("05–08 h et 17–20 h")],["Heures assurées dans le créneau",state.jobs.loading+" / 3 h"],
       ["Reçue / demandée",u(reading.received,"kW")+" / "+u(reading.demand,"kW")],["Contrats honorés",String(state.jobs.trains)],
       ["Départs manqués",String(state.jobs.missed)],["Prime au départ",credit(game.trainPrice)]];
-    if (id === "pumped") return [["Énergie du bassin supérieur",u(state.game.stocks[id].soc,"kWh")+" / "+u(slotOf(id).capacity,"kWh")],
+    if (id === "pumped") return [["Mode de ce créneau",t(game.storageModes[latest.world.nodes.find(node => node.id === "pumped").storageMode])],
+      ["Énergie du bassin supérieur",u(state.game.stocks[id].soc,"kWh")+" / "+u(slotOf(id).capacity,"kWh")],
       ["Électricité de pompage prévue",u(reading.charge,"kWh")],["Énergie mise en réserve",u(reading.stored,"kWh")],
       ["Puissance turbinée",u(reading.generated,"kW")],["Rendement aller-retour",u(100*grid.catalog.pumped.chargeEfficiency*grid.catalog.pumped.dischargeEfficiency,"%")]];
     if (id === "intake") return [["Eau disponible",u(state.game.stocks.intake.water,"m³")],["Eau prélevée ce créneau",u(reading.waterFlow,"m³")]];
@@ -311,6 +328,33 @@
     ];
   }
 
+  function options(entries, selected) {
+    return Object.entries(entries).map(([key, label]) =>
+      `<option value="${key}" ${String(selected) === key ? "selected" : ""}>${tr(label)}</option>`).join("");
+  }
+
+  function programForm(id) {
+    const program = state.programs[id];
+    if (!program) return "";
+    const hours = Object.fromEntries(Array.from({ length: 24 }, (_, hour) => [hour, String(hour).padStart(2, "0") + ":00"]));
+    const select = (name, label, entries) => `<label>${tr(label)}<select name="${name}">${options(entries, program[name])}</select></label>`;
+    const number = (name, label, max) => `<label>${tr(label)}<input name="${name}" type="number" min="0" max="${max}" value="${program[name]}" required></label>`;
+    const planned = id === "pumped" && state.storageMode !== "scheduled" ? "hidden" : "";
+    const fields = id === "dispatch" ? `
+      ${number("inside", "En plage (kW)", game.dispatchRating)}${number("outside", "Hors plage (kW)", game.dispatchRating)}
+      ${select("response", "Réponse à la météo", game.weatherResponses)}${number("adjustment", "Amplitude météo (%)", 50)}`
+      : id === "greenhouse" ? select("mode", "Fonctionnement", game.greenhouseModes) : "";
+    const heading = id === "pumped" ? "Plage de turbinage" : id === "greenhouse" ? "Plage de culture" : "Programme du poste";
+    return `<form class="program-form" data-program="${id}" ${planned}>
+      <h3>${tr(heading)}</h3>
+      <div class="program-grid">${select("start", "Début", hours)}${select("end", "Fin", hours)}${fields}</div>
+      <p>${tr("Une plage peut traverser minuit. Début et fin identiques couvrent la journée.")}</p>
+      ${id === "dispatch" ? `<p>${tr("Suivre hausse le plafond quand le vent ou le soleil est fort. Compenser le hausse quand les deux sont faibles.")}</p>` : ""}
+      ${id === "pumped" ? `<p>${tr("Le bassin turbine sur la plage et pompe les surplus en dehors.")}</p>` : ""}
+      <div class="dialog-footer"><button type="submit" class="button primary">${tr("Appliquer")}</button><span class="program-status" role="status"></span></div>
+    </form>`;
+  }
+
   function installation(id) {
     if (id === "network") { showView("research"); return; }
     if (id === "sequence") { sequenceView(); return; }
@@ -333,12 +377,13 @@
     const configured = Object.hasOwn(game.adjustable, id);
     openDialog(slot.name, `${slot.note?`<p>${tr(slot.note)}</p>`:""}<dl class="meter" id="equipment-meters">${meters(readingsFor(id))}</dl>
       ${configured ? settingsHtml(id) : ""}
-      ${id === "pumped" ? `<label class="dialog-select">${tr("Consigne de la station")}<select id="storage-mode">${Object.entries(game.storageModes).map(([key,label])=>`<option value="${key}" ${state.storageMode===key?"selected":""}>${tr(label)}</option>`).join("")}</select></label>` : ""}
+      ${id === "pumped" ? `<label class="dialog-select">${tr("Consigne de la station")}<select id="storage-mode">${options(game.storageModes, state.storageMode)}</select></label>` : ""}
       ${id === "starter" ? `<div class="dialog-footer">
         <button type="button" data-action="sequence" class="button primary" ${state.manual?.at === state.game.elapsed ? "disabled" : ""}>${tr("Préparer le groupe")}</button>
         <button type="button" data-action="refuel" class="button">${tr("Acheter un bidon · {price}", { price: credit(game.fuelPack.price) })}</button></div>
         <p id="starter-status">${state.manual?.at === state.game.elapsed ? tr("Le groupe est prêt pour cette heure.") : ""}</p>` : ""}
-      ${id === "plant" ? `<button type="button" data-action="refuel" class="button">${tr("Ravitailler jusqu’à 1 MWh · {price}/MWh", { price: credit(grid.fuelPrice) })}</button>` : ""}`);
+      ${id === "plant" ? `<button type="button" data-action="refuel" class="button">${tr("Ravitailler jusqu’à 1 MWh · {price}/MWh", { price: credit(grid.fuelPrice) })}</button>` : ""}
+      ${programForm(id)}`);
   }
 
   function drawFault(target) {
@@ -356,6 +401,7 @@
     content.innerHTML=`<dl class="meter">${meters([
       ["Sens du flux",meter.direction?flow.map((node)=>names.get(node)).join(" → "):t("Au repos")],
       ["Longueur",u(meter.length*1000,"m",1)],
+      ...(meter.powerLimit === undefined ? [] : [["Plafond après météo", u(meter.powerLimit, "kW")]]),
       ...(water?[["Débit",u(meter.sent,"m³/h")]]:[["Puissance au départ",u(meter.sent,"kW")],["Puissance à l’arrivée",u(meter.received,"kW")],
         ["Courant",u(meter.current,"A",4)],["Pertes dans le câble",lossLabel(meter.loss,"W")]])
     ])}</dl>`;
@@ -576,7 +622,9 @@
         ["Produite", u(row.generated, "kW")], ["Demandée", u(row.demand, "kW")], ["Reçue", u(row.served, "kW")],
         ["Pertes dans les câbles", lossLabel(row.losses, "W")], ["Électricité envoyée au stockage", u(row.charged, "kWh")],
         ["Énergie mise en réserve", u(row.stored, "kWh")],["Vent",u(row.wind,"m/s",1)],["Eau livrée", u(row.waterDelivered, "m³")],
-        ...(sources ? [["Ventes d’électricité",credit(last.sales)],["Récoltes et contrats",credit(last.crop+last.freight)],["Recettes du créneau",credit(last.credit)]] : [])
+        ...(sources ? [["Météo", weatherText(row.weather)], ["Ventes d’électricité",credit(last.sales)],["Récoltes et contrats",credit(last.crop+last.freight)],["Recettes du créneau",credit(last.credit)]] : []),
+        ...(world.dispatch ? [["Plafond du poste programmable", u(world.dispatch.limit, "kW")],
+          ["Puissance livrée par le poste", u(row.nodes.dispatch.outbound, "kW")]] : [])
       ])}</dl>
       <h2>${tr("Installations")}</h2>${htmlTable(["Installation", "Tension (kV)", "Demande (kW)", "Reçue (kW)", "Injectée (kW)", "Stock / occupation", "Diagnostic"], nodeRows)}
       <h2>${tr("Liaisons")}</h2>${wireRows.length ? htmlTable(["Liaison", "Sens", "Débit ou puissance", "Courant (A)", "Pertes", "Longueur (km)"], wireRows) : `<p>${tr("Aucune liaison active.")}</p>`}
@@ -591,7 +639,7 @@
         ...(state.built.includes("pump") ? [["Réglage de la pompe", u(state.settings.pump, "%", 0)], ["Puissance de pompage", u(sources.pump, "kW")],
           ["Débit maximal de pompage", u(sources.pumpFlow, "m³/h")]] : []),
         ...["breeze","windfarm"].filter((id)=>state.built.includes(id)).map((id)=>[slotOf(id).name,u(state.settings[id],"%",0)+" · "+u(row.nodes[id].available,"kW disponibles")]),
-        ...(state.built.includes("pumped")?[["Consigne de la station",t(game.storageModes[state.storageMode])]]:[])
+        ...(state.built.includes("pumped")?[["Mode de ce créneau",t(game.storageModes[world.nodes.find(node => node.id === "pumped").storageMode])]]:[])
       ])}</dl>` : ""}`;
   }
 
@@ -716,6 +764,7 @@
   });
   $("#new-run").addEventListener("click", () => openDialog("Nouvelle partie", `<p>${tr("Repartir à midi avec {price}, une maison et un groupe d’appoint déjà raccordé ? La progression de cette campagne sera remplacée.", { price: credit(game.startingCredits) })}</p><button type="button" class="button primary" data-action="reset">${tr("Recommencer")}</button>`));
   $("#app-settings").addEventListener("click", openSettings);
+  $("#village-details").addEventListener("click", () => openDialog("Bilan du village", `<dl class="meter" id="summary-meters">${summaryMeters()}</dl>`));
   content.addEventListener("change", (event) => {
     if (event.target.id === "interface-language") changeLanguage(event.target.value);
   });
@@ -725,6 +774,7 @@
     if (event.target.id === "storage-mode") {
       change(game.setStorageMode(state,event.target.value));
       $("#equipment-meters").innerHTML=meters(readingsFor("pumped"));
+      $('[data-program="pumped"]').hidden = state.storageMode !== "scheduled";
       return;
     }
     if (event.target.id !== "operating-rate") return;
@@ -734,6 +784,23 @@
       $("#equipment-meters").innerHTML = meters(readingsFor(equipment));
       $("#editor-error").textContent = "";
     } catch (error) { $("#editor-error").textContent = localizedError(error.message); }
+  });
+  content.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-program]");
+    if (!form) return;
+    event.preventDefault();
+    const id = form.dataset.program;
+    const values = Object.fromEntries([...new FormData(form)].map(([key, value]) =>
+      [key, key === "response" || key === "mode" ? value : Number(value)]));
+    try {
+      change(game.setProgram(state, id, values));
+      $("#equipment-meters").innerHTML = meters(readingsFor(id));
+      $("#editor-error").textContent = "";
+      form.querySelector(".program-status").textContent = t("Programme enregistré.");
+    } catch (error) {
+      form.querySelector(".program-status").textContent = "";
+      $("#editor-error").textContent = localizedError(error.message);
+    }
   });
   content.addEventListener("click", (event) => {
     const target = event.target.closest("button");

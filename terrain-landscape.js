@@ -198,7 +198,7 @@
     const plinth = { house: [5.2, 4.7], starter: [5.4, 4.5], mill: [8.6, 6.3], water: [2.4, 2.4],
       pump: [5.65, 4.9], substation: [6.3, 5.9], apartment: [7.4, 7.6], battery: [7.4, 7.2],
       solar: [12.8, 9.5], nuclear: [15.7, 13.1], hospital: [16.5, 9.5], greenhouse:[9.5,5.5],
-      freight:[16,8], windFarm:[15,8], microWind:[2.4,2.4], station:[9,6.6], pumped:[15.6,13.8], pole:[1,1] };
+      freight:[16,8], windFarm:[15,8], microWind:[2.4,2.4], station:[9,6.6], dispatch:[9,6.6], pumped:[15.6,13.8], pole:[1,1] };
     scene.add(ground, water, grass);
 
     return {
